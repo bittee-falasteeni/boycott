@@ -4392,18 +4392,38 @@ export class MainScene extends Phaser.Scene {
     }
 
     if (this.isTaunting) {
-      const exitTaunt = leftDown || rightDown || crouchPressed || upDown || fireDown
-      if (exitTaunt) {
-        this.cancelTaunt(false)
-      } else {
+      // Allow left/right to flip bittee horizontally while taunting
+      if (leftDown) {
+        this.player.setFlipX(true)
+        // Prevent any x-axis movement
         this.player.setVelocityX(0)
         if (body) {
           body.setVelocityX(0)
-          body.setVelocityY(0)
-          body.setAcceleration(0, 0)
         }
+      } else if (rightDown) {
+        this.player.setFlipX(false)
+        // Prevent any x-axis movement
+        this.player.setVelocityX(0)
+        if (body) {
+          body.setVelocityX(0)
+        }
+      }
+      
+      // Only exit taunt on up/down/fire, not left/right
+      const exitTaunt = crouchPressed || upDown || fireDown
+      if (exitTaunt) {
+        this.cancelTaunt(false)
         return
       }
+      
+      // Prevent any movement while taunting
+      this.player.setVelocityX(0)
+      if (body) {
+        body.setVelocityX(0)
+        body.setVelocityY(0)
+        body.setAcceleration(0, 0)
+      }
+      return
     }
 
     // Ground crouch: stop and hold crouch pose when on the floor.

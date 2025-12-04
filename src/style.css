@@ -24,6 +24,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none; /* Prevent browser from handling touch gestures - allow multi-touch */
 }
 
 canvas {
@@ -32,4 +33,5 @@ canvas {
   image-rendering: pixelated;
   border: 2px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  touch-action: none; /* Prevent browser from handling touch gestures - allow multi-touch */
 }

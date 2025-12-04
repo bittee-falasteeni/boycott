@@ -27,6 +27,9 @@ const config: Phaser.Types.Core.GameConfig = {
     // Note: Audio CORS errors in dev are usually harmless - Phaser will fall back to HTMLAudioElement
     // The errors appear but audio should still work
   },
+  input: {
+    activePointers: 5, // Support up to 5 simultaneous touches for multi-touch mobile controls
+  },
 }
 
 void new Phaser.Game(config)
