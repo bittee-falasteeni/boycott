@@ -1,0 +1,35 @@
+@import url('./assets/fonts/fonts.css');
+
+:root {
+  font-family: 'Montserrat', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #1c231e; /* Darker version of start modal background (0x2f3b32) */
+  color: #cbe4ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1c231e; /* Darker version of start modal background (0x2f3b32) */
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
