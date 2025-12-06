@@ -10,6 +10,7 @@
     <!-- Production: Try to find and load built file. Development: Load source file -->
     <script type="module">
       const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1');
+      const isGitHubPages = window.location.hostname.includes('github.io');
       
       if (isDev) {
         // Development: load source file
@@ -17,15 +18,25 @@
         script.type = 'module';
         script.src = '/src/main.ts';
         document.head.appendChild(script);
+      } else if (isGitHubPages && window.location.pathname === '/') {
+        // Production on GitHub Pages root: redirect to /boycott/
+        window.location.href = '/boycott/';
       } else {
-        // Production: Try to find the built file
-        // First, try to fetch the built index.html from /boycott/
+        // Production: Try to load built file from /boycott/index.html
         fetch('/boycott/index.html')
           .then(response => {
-            if (!response.ok) throw new Error('Not found');
+            if (!response.ok) {
+              // If /boycott/index.html doesn't exist, we're probably at the wrong path
+              if (window.location.pathname !== '/boycott/') {
+                window.location.href = '/boycott/';
+                return;
+              }
+              throw new Error('Not found');
+            }
             return response.text();
           })
           .then(html => {
+            if (!html) return;
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const scriptTag = doc.querySelector('script[type="module"]');
@@ -48,40 +59,24 @@
                 document.head.appendChild(link);
               }
             } else {
-              throw new Error('Could not find built files in index.html');
+              throw new Error('Could not find built files');
             }
           })
           .catch(() => {
-            // Fallback: Try to find index-*.js in assets directory
-            // This is a last resort - try common patterns
-            console.warn('Could not fetch /boycott/index.html, trying to find built file...');
-            
-            // Try to list assets directory (if directory listing is enabled)
-            fetch('/boycott/assets/')
-              .then(response => response.text())
-              .then(html => {
-                // Try to extract index-*.js from directory listing
-                const match = html.match(/index-[\w-]+\.js/);
-                if (match) {
-                  const script = document.createElement('script');
-                  script.type = 'module';
-                  script.crossOrigin = 'anonymous';
-                  script.src = `/boycott/assets/${match[0]}`;
-                  document.head.appendChild(script);
-                } else {
-                  throw new Error('Could not find built file');
-                }
-              })
-              .catch(() => {
-                // Final fallback: Show error message
-                document.getElementById('app').innerHTML = `
-                  <div style="color: white; padding: 20px; text-align: center;">
-                    <h2>Game failed to load</h2>
-                    <p>Please ensure GitHub Pages is configured to use "GitHub Actions" as the source.</p>
-                    <p style="font-size: 12px; color: #888;">Go to Settings > Pages > Source and select "GitHub Actions"</p>
-                  </div>
-                `;
-              });
+            // Show error message
+            const app = document.getElementById('app');
+            if (app) {
+              app.innerHTML = `
+                <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif;">
+                  <h2>Game failed to load</h2>
+                  <p>Please ensure GitHub Pages is configured to use "GitHub Actions" as the source.</p>
+                  <p style="font-size: 12px; color: #888; margin-top: 20px;">
+                    Go to your repository Settings > Pages > Source<br/>
+                    and select "GitHub Actions" (not "Deploy from a branch")
+                  </p>
+                </div>
+              `;
+            }
           });
       }
     </script>
