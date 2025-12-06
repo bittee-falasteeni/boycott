@@ -1098,12 +1098,22 @@ export class MainScene extends Phaser.Scene {
         ball.setData('peakHeight', 0)
         ball.setData('peakY', undefined)
         
-        // If slow motion is active, ensure ball has slow motion flag set
+        // FIX: If slow motion is active, ensure ball has slow motion flag set and apply it
         if (this.isSlowMotion && !ball.getData('slowMotionApplied')) {
+          // Store original values BEFORE applying slow motion
+          const originalVelX = currentVelX
+          const originalVelY = -bounceVel
+          const originalGravity = body.gravity.y || 240
+          
           ball.setData('slowMotionApplied', true)
-          ball.setData('originalVelX', currentVelX)
-          ball.setData('originalVelY', -bounceVel)
-          ball.setData('originalGravity', body.gravity.y || 240)
+          ball.setData('originalVelX', originalVelX)
+          ball.setData('originalVelY', originalVelY)
+          ball.setData('originalGravity', originalGravity)
+          
+          // Apply slow motion factor to the bounce velocity
+          const slowMotionFactor = 0.3
+          body.setVelocity(originalVelX * slowMotionFactor, bounceVelY)
+          body.setGravityY(originalGravity * slowMotionFactor)
         }
       } else if (isTouchingGround && isMovingDown) {
         // Subsequent bounces - only bounce if moving down (hitting ground)
@@ -1112,6 +1122,16 @@ export class MainScene extends Phaser.Scene {
           const bounceVelY = -scaledBounceVel
           // Scale X velocity too if slow motion is active
           const scaledVelX = currentVelX * slowMotionFactor
+          
+          // FIX: If slow motion is active and ball doesn't have flag, apply it now
+          if (this.isSlowMotion && !ball.getData('slowMotionApplied')) {
+            // Store original values
+            ball.setData('originalVelX', currentVelX)
+            ball.setData('originalVelY', -bounceVel)
+            ball.setData('originalGravity', body.gravity.y || 240)
+            ball.setData('slowMotionApplied', true)
+          }
+          
           body.setVelocity(scaledVelX, bounceVelY)
           ball.setData('lastBounceFrame', currentFrame)
         }
@@ -4408,16 +4428,17 @@ export class MainScene extends Phaser.Scene {
 
     if (this.isTaunting) {
       // Allow left/right to flip bittee horizontally while taunting
-      // FIX: Reverse the flip - right should flip left, left should flip right
-      if (leftDown) {
-        this.player.setFlipX(false)  // Left button flips right (facing right)
+      // FIX: Right arrow button should flip it first (be the primary flip button)
+      // Right flips to left (setFlipX(true)), left flips to right (setFlipX(false))
+      if (rightDown) {
+        this.player.setFlipX(true)  // Right button flips left (facing left)
         // Prevent any x-axis movement
         this.player.setVelocityX(0)
         if (body) {
           body.setVelocityX(0)
         }
-      } else if (rightDown) {
-        this.player.setFlipX(true)  // Right button flips left (facing left)
+      } else if (leftDown) {
+        this.player.setFlipX(false)  // Left button flips right (facing right)
         // Prevent any x-axis movement
         this.player.setVelocityX(0)
         if (body) {
@@ -8739,15 +8760,26 @@ export class MainScene extends Phaser.Scene {
           })
         } else {
           // All tanks destroyed - automatically enter taunt mode, then victory!
-          // FIX: Enter taunt mode when final tank is destroyed
-          this.tryTaunt()
-          // Prevent movement - only allow flipping with arrow keys
-          this.player.setVelocityX(0)
-          if (body) {
-            body.setVelocityX(0)
-            body.setVelocityY(0)
-            body.setAcceleration(0, 0)
+          // FIX: Enter taunt mode when final tank (tank3, index 2) is destroyed
+          // Ensure player is on ground before taunting
+          const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
+          if (playerBody && this.isPlayerGrounded(playerBody)) {
+            // Force taunt mode
+            this.isTaunting = true
+            this.player.setVelocityX(0)
+            playerBody.setVelocity(0, 0)
+            playerBody.setAcceleration(0, 0)
+            playerBody.setAllowGravity(false)
+            this.tauntGravityDisabled = true
+            
+            // Play taunt animation
+            const tauntKey = this.currentTauntFrame === 1 ? 'bittee-taunt' : 'bittee-taunt2'
+            this.player.anims.play(tauntKey, true)
+            
+            // Prevent any movement - only allow flipping with arrow keys
+            this.player.setFlipX(false)  // Start facing right
           }
+          
           // Start victory phase after a short delay
           this.time.delayedCall(500, () => {
             this.startVictoryPhase()
@@ -9736,20 +9768,35 @@ export class MainScene extends Phaser.Scene {
 
     // FIX: Check which track is currently playing and continue it instead of restarting
     // This prevents track 1 from playing on top of track 2 when respawning
-    if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+    // Check isPlaying status more reliably
+    const track1Playing = this.backgroundMusic1 && (this.backgroundMusic1.isPlaying || !this.backgroundMusic1.isPaused)
+    const track2Playing = this.backgroundMusic2 && (this.backgroundMusic2.isPlaying || !this.backgroundMusic2.isPaused)
+    
+    if (track2Playing) {
       // Track 2 is playing - keep it playing, don't restart track 1
       this.currentMusicTrack = 2
+      // Ensure it's actually playing (resume if paused)
+      if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+        this.backgroundMusic2.resume()
+      }
       return
-    } else if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+    } else if (track1Playing) {
       // Track 1 is playing - keep it playing
       this.currentMusicTrack = 1
+      // Ensure it's actually playing (resume if paused)
+      if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+        this.backgroundMusic1.resume()
+      }
       return
     }
 
     // No track is playing - start with track 1
     this.currentMusicTrack = 1
     if (this.backgroundMusic1 && !this.backgroundMusic1.isPlaying) {
-      this.backgroundMusic1.play()
+      const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+      if (volumeMultiplier > 0) {
+        this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+      }
     }
     
     // Start heartbeat when game starts
@@ -9946,8 +9993,12 @@ export class MainScene extends Phaser.Scene {
       }
     })
     
-    // Remove triangles for balls that are no longer in range, inactive, or destroyed
+    // FIX: Remove triangles for balls that are no longer in range, inactive, or destroyed
+    // Also check if triangles are stuck (especially around ground level)
     const ballsToRemove: Phaser.Physics.Arcade.Image[] = []
+    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerHeadY = playerY - this.player.displayHeight  // Approximate head level
+    
     this.aimingTriangles.forEach((triangle, ball) => {
       // FIX: Check if triangle still exists and is valid
       const triangleExists = triangle && triangle.scene
@@ -9955,15 +10006,41 @@ export class MainScene extends Phaser.Scene {
       const ballValid = ball && ball.active && ball.scene && this.balls.contains(ball)
       const ballInRange = ballsToShow.has(ball)
       
+      // FIX: Also check if triangle is stuck (orphaned) - especially around ground/head level
+      let isStuck = false
+      if (triangle && triangle.scene) {
+        const triangleY = triangle.y
+        // Check if triangle is in the problematic zone (between ground and head level)
+        if (triangleY >= playerHeadY && triangleY <= playerY + 50) {
+          // Check if ball is actually near this triangle
+          if (ball && ball.scene) {
+            const ballY = ball.y
+            const distance = Math.abs(ballY - triangleY)
+            // If triangle is far from ball, it's likely stuck
+            if (distance > 100) {
+              isStuck = true
+            }
+          } else {
+            // Ball doesn't exist but triangle does - definitely stuck
+            isStuck = true
+          }
+        }
+      }
+      
       // Remove triangle if:
       // 1. Triangle itself is destroyed/inactive
       // 2. Ball is not in range
       // 3. Ball is not active
       // 4. Ball's scene is null (destroyed)
       // 5. Ball is not in the balls group anymore
-      if (!triangleExists || !triangleActive || !ballValid || !ballInRange) {
+      // 6. Triangle is stuck (orphaned)
+      if (!triangleExists || !triangleActive || !ballValid || !ballInRange || isStuck) {
         if (triangle && triangle.scene) {
-          triangle.destroy()
+          try {
+            triangle.destroy()
+          } catch (e) {
+            // Ignore errors if already destroyed
+          }
         }
         ballsToRemove.push(ball)
       }
@@ -9973,9 +10050,26 @@ export class MainScene extends Phaser.Scene {
       // Destroy triangle immediately if it exists
       const triangle = this.aimingTriangles.get(ball)
       if (triangle && triangle.scene) {
-        triangle.destroy()
+        try {
+          triangle.destroy()
+        } catch (e) {
+          // Ignore errors if already destroyed
+        }
       }
       this.aimingTriangles.delete(ball)
+      
+      // FIX: Also clean up ball's attached indicator
+      if (ball && ball.scene) {
+        const attachedTriangle = ball.getData('aimIndicator') as Phaser.GameObjects.Text | undefined
+        if (attachedTriangle && attachedTriangle.scene) {
+          try {
+            attachedTriangle.destroy()
+          } catch (e) {
+            // Ignore errors
+          }
+          ball.setData('aimIndicator', undefined)
+        }
+      }
     })
     
     // Create or update triangles for balls in range
@@ -10243,17 +10337,27 @@ export class MainScene extends Phaser.Scene {
       }
     }
     
-    // FIX: Also search scene for any orphaned triangles near this ball's position
+    // FIX: Also search scene for any orphaned triangles, especially around ground/head level
     if (ball && ball.scene) {
       const ballX = ball.x
       const ballY = ball.y
+      const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+      const playerHeadY = playerY - this.player.displayHeight
+      
       this.children.list.forEach((child) => {
         if (child instanceof Phaser.GameObjects.Text) {
           const text = child as Phaser.GameObjects.Text
           if (text.text && text.text.includes('\u25BC')) {
+            const textY = text.y
+            const textX = text.x
+            
             // Check if triangle is near this ball (likely orphaned)
-            const distance = Phaser.Math.Distance.Between(text.x, text.y, ballX, ballY)
-            if (distance < 100) {
+            const distance = Phaser.Math.Distance.Between(textX, textY, ballX, ballY)
+            
+            // FIX: Also check if triangle is in problematic zone (ground to head level)
+            const inProblemZone = textY >= playerHeadY && textY <= playerY + 50
+            
+            if (distance < 100 || inProblemZone) {
               // Check if it's not in our Maps
               let foundInMap = false
               this.aimingTriangles.forEach((tri) => {
