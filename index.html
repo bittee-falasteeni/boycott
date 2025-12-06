@@ -5,48 +5,11 @@
     <link rel="icon" type="image/svg+xml" href="/boycott/bittee-logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bittee – Falasteeni</title>
-    <script type="module">
-      const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1');
-      const isGitHubPages = window.location.hostname.includes('github.io');
-      const currentPath = window.location.pathname;
-      
-      if (isDev) {
-        // Development: load source file directly
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = '/src/main.ts';
-        script.onerror = (e) => {
-          console.error('Failed to load /src/main.ts:', e);
-          document.getElementById('app').innerHTML = '<div style="color: white; padding: 20px;">Failed to load game. Check console.</div>';
-        };
-        document.head.appendChild(script);
-      } else if (isGitHubPages) {
-        // Production on GitHub Pages
-        // GitHub Actions should serve dist/index.html at /boycott/
-        // If we're at root, redirect to /boycott/
-        if (currentPath === '/' || !currentPath.startsWith('/boycott')) {
-          window.location.replace('/boycott/');
-        } else {
-          // If we're at /boycott/ but this root index.html is being served,
-          // it means GitHub Actions isn't working. Show error.
-          document.getElementById('app').innerHTML = `
-            <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
-              <h2>GitHub Actions deployment issue</h2>
-              <p>The root index.html is being served instead of the built files.</p>
-              <p style="font-size: 14px; color: #888; margin-top: 20px;">
-                Please check:<br/>
-                - GitHub Pages Settings → Source should be "GitHub Actions"<br/>
-                - GitHub Actions tab → Is deployment complete?<br/>
-                - Wait a few minutes for deployment to propagate
-              </p>
-            </div>
-          `;
-        }
-      }
-    </script>
+    <!-- Vite will replace this with the built file during build -->
+    <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <div id="app">Loading...</div>
+    <div id="app"></div>
   </body>
 </html>
           .then(response => {
