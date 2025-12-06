@@ -603,6 +603,7 @@ export class MainScene extends Phaser.Scene {
   private currentHeartbeatType: 'slow' | 'medium' | 'fast' | null = null
   private jetSoundCount = 0
   private timeSoundInstances: Phaser.Sound.BaseSound[] = []
+  private lastMemoryCleanup: number = 0  // Track last memory cleanup time
 
   constructor() {
     super('MainScene')
