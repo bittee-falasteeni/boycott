@@ -52,22 +52,54 @@
             });
             
             // Add scripts
-            scripts.forEach(script => {
+            scripts.forEach((script, index) => {
+              const scriptSrc = script.getAttribute('src') || script.textContent?.substring(0, 50) || 'unknown';
+              console.log(`Loading script ${index + 1}:`, scriptSrc);
+              
               const newScript = script.cloneNode(true);
+              newScript.onload = () => {
+                console.log(`Script ${index + 1} loaded successfully:`, scriptSrc);
+              };
               newScript.onerror = (e) => {
-                console.error('Failed to load script:', script.src, e);
+                console.error(`Failed to load script ${index + 1}:`, scriptSrc, e);
                 document.getElementById('app').innerHTML = `
                   <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
                     <h2>Failed to load game script</h2>
-                    <p>Script: ${script.src || 'unknown'}</p>
+                    <p>Script: ${scriptSrc}</p>
                     <p style="font-size: 14px; color: #888; margin-top: 20px;">
                       Check browser console for details.
                     </p>
                   </div>
                 `;
               };
+              
+              // Also check for crossorigin attribute
+              if (script.hasAttribute('crossorigin')) {
+                newScript.setAttribute('crossorigin', script.getAttribute('crossorigin') || 'anonymous');
+              }
+              
               document.head.appendChild(newScript);
             });
+            
+            // Wait a bit and check if game initialized
+            setTimeout(() => {
+              const app = document.getElementById('app');
+              if (app && app.children.length === 0 && app.textContent === 'Initializing...') {
+                console.warn('Game may not have initialized. Checking for errors...');
+                // Check if Phaser is loaded
+                if (typeof Phaser === 'undefined') {
+                  document.getElementById('app').innerHTML = `
+                    <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                      <h2>Game not initializing</h2>
+                      <p>Phaser library not loaded. Check console for errors.</p>
+                      <p style="font-size: 14px; color: #888; margin-top: 20px;">
+                        Script was loaded but game didn't start.
+                      </p>
+                    </div>
+                  `;
+                }
+              }
+            }, 3000);
             
             if (scripts.length === 0) {
               throw new Error('No scripts found in built index.html');
