@@ -11,6 +11,7 @@
     <script type="module">
       const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1');
       const isGitHubPages = window.location.hostname.includes('github.io');
+      const currentPath = window.location.pathname;
       
       if (isDev) {
         // Development: load source file
@@ -18,66 +19,13 @@
         script.type = 'module';
         script.src = '/src/main.ts';
         document.head.appendChild(script);
-      } else if (isGitHubPages && window.location.pathname === '/') {
-        // Production on GitHub Pages root: redirect to /boycott/
-        window.location.href = '/boycott/';
-      } else {
-        // Production: Try to load built file from /boycott/index.html
-        fetch('/boycott/index.html')
-          .then(response => {
-            if (!response.ok) {
-              // If /boycott/index.html doesn't exist, we're probably at the wrong path
-              if (window.location.pathname !== '/boycott/') {
-                window.location.href = '/boycott/';
-                return;
-              }
-              throw new Error('Not found');
-            }
-            return response.text();
-          })
-          .then(html => {
-            if (!html) return;
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const scriptTag = doc.querySelector('script[type="module"]');
-            const linkTag = doc.querySelector('link[rel="stylesheet"]');
-            
-            if (scriptTag && scriptTag.src) {
-              // Load the built JS file
-              const script = document.createElement('script');
-              script.type = 'module';
-              script.crossOrigin = 'anonymous';
-              script.src = scriptTag.src;
-              document.head.appendChild(script);
-              
-              // Load the built CSS file
-              if (linkTag && linkTag.href) {
-                const link = document.createElement('link');
-                link.rel = 'stylesheet';
-                link.crossOrigin = 'anonymous';
-                link.href = linkTag.href;
-                document.head.appendChild(link);
-              }
-            } else {
-              throw new Error('Could not find built files');
-            }
-          })
-          .catch(() => {
-            // Show error message
-            const app = document.getElementById('app');
-            if (app) {
-              app.innerHTML = `
-                <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif;">
-                  <h2>Game failed to load</h2>
-                  <p>Please ensure GitHub Pages is configured to use "GitHub Actions" as the source.</p>
-                  <p style="font-size: 12px; color: #888; margin-top: 20px;">
-                    Go to your repository Settings > Pages > Source<br/>
-                    and select "GitHub Actions" (not "Deploy from a branch")
-                  </p>
-                </div>
-              `;
-            }
-          });
+      } else if (isGitHubPages) {
+        // Production on GitHub Pages: redirect to /boycott/ if not already there
+        if (currentPath === '/' || !currentPath.startsWith('/boycott')) {
+          window.location.replace('/boycott/');
+        }
+        // If already at /boycott/, the built index.html should be served automatically
+        // No need to do anything - just let the page load normally
       }
     </script>
   </head>
