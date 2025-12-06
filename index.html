@@ -6,63 +6,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bittee – Falasteeni</title>
     <script type="module">
+      console.log('Root index.html script executing...');
       const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1');
       const isGitHubPages = window.location.hostname.includes('github.io');
       
+      console.log('Environment:', { isDev, isGitHubPages, pathname: window.location.pathname });
+      
       if (isDev) {
         // Development: load source file directly
+        console.log('Loading development file: /src/main.ts');
         const script = document.createElement('script');
         script.type = 'module';
         script.src = '/src/main.ts';
+        script.onerror = (e) => {
+          console.error('Failed to load /src/main.ts:', e);
+          document.getElementById('app').innerHTML = '<div style="color: white; padding: 20px;">Failed to load game. Check console.</div>';
+        };
         document.head.appendChild(script);
       } else if (isGitHubPages) {
         // Production on GitHub Pages
-        // Try to fetch the built index.html to get the correct script paths
+        console.log('Fetching /boycott/index.html...');
         fetch('/boycott/index.html')
           .then(response => {
+            console.log('Fetch response:', response.status, response.statusText);
             if (response.ok) {
               return response.text();
             }
-            throw new Error('Could not fetch built index.html');
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           })
           .then(html => {
+            console.log('Fetched HTML, parsing...');
             // Parse the HTML to find script and link tags
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const scripts = doc.querySelectorAll('script[type="module"]');
             const links = doc.querySelectorAll('link[rel="stylesheet"]');
             
+            console.log(`Found ${scripts.length} scripts and ${links.length} stylesheets`);
+            
             // Add stylesheets
             links.forEach(link => {
               const newLink = link.cloneNode(true);
+              newLink.onerror = (e) => console.error('Failed to load stylesheet:', link.href, e);
               document.head.appendChild(newLink);
             });
             
             // Add scripts
             scripts.forEach(script => {
               const newScript = script.cloneNode(true);
+              newScript.onerror = (e) => {
+                console.error('Failed to load script:', script.src, e);
+                document.getElementById('app').innerHTML = `
+                  <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                    <h2>Failed to load game script</h2>
+                    <p>Script: ${script.src || 'unknown'}</p>
+                    <p style="font-size: 14px; color: #888; margin-top: 20px;">
+                      Check browser console for details.
+                    </p>
+                  </div>
+                `;
+              };
               document.head.appendChild(newScript);
             });
+            
+            if (scripts.length === 0) {
+              throw new Error('No scripts found in built index.html');
+            }
           })
           .catch(error => {
             console.error('Failed to load built files:', error);
             document.getElementById('app').innerHTML = `
               <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
                 <h2>Game not loading</h2>
-                <p>GitHub Actions deployment may not be complete.</p>
+                <p>Error: ${error.message}</p>
                 <p style="font-size: 14px; color: #888; margin-top: 20px;">
                   Please check:<br/>
                   - GitHub Actions tab: Is deployment complete?<br/>
                   - GitHub Pages Settings: Source should be "GitHub Actions"<br/>
-                  - Try hard refresh (Ctrl+Shift+R or Cmd+Shift+R)
+                  - Try hard refresh (Ctrl+Shift+R or Cmd+Shift+R)<br/>
+                  - Check browser console for more details
                 </p>
               </div>
             `;
           });
+      } else {
+        console.log('Unknown environment, showing error');
+        document.getElementById('app').innerHTML = `
+          <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+            <h2>Unknown environment</h2>
+            <p>Hostname: ${window.location.hostname}</p>
+          </div>
+        `;
       }
     </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">Initializing...</div>
   </body>
 </html>
