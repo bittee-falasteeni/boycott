@@ -2415,7 +2415,6 @@ export class MainScene extends Phaser.Scene {
     const infoIcon = this.add.image(infoIconX, infoIconY, 'info-icon')
     infoIcon.setDisplaySize(infoIconSize, infoIconSize)
     // FIX: Use brighter color for info icon
-    console.log('INFO ICON: Setting brighter color 0x4a5a4a')
     infoIcon.setTintFill(0x4a5a4a)  // Brighter green than HUD background (0x2f3b32)
     infoIcon.setInteractive({ useHandCursor: true })
     infoIcon.setDepth(21)
@@ -8060,7 +8059,7 @@ export class MainScene extends Phaser.Scene {
         }
       }
     } catch (error) {
-      console.error('Error in startLevelFromSelection:', error)
+      // Error in startLevelFromSelection
       // Try to recover by at least clearing game objects
       try {
         this.balls.clear(true, true)
