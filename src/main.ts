@@ -32,7 +32,8 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   fps: {
     target: 30, // Limit to 30fps on mobile to prevent crashes and improve stability
-    forceSetTimeOut: true, // Use setTimeout instead of requestAnimationFrame for better mobile compatibility
+    // Removed forceSetTimeOut - it was causing mobile to not work
+    // Mobile browsers handle requestAnimationFrame better than setTimeout
   },
   render: {
     antialias: false, // Disable antialiasing on mobile for better performance
