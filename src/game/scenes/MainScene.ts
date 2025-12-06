@@ -8761,24 +8761,27 @@ export class MainScene extends Phaser.Scene {
         } else {
           // All tanks destroyed - automatically enter taunt mode, then victory!
           // FIX: Enter taunt mode when final tank (tank3, index 2) is destroyed
-          // Ensure player is on ground before taunting
+          // Force taunt mode immediately - don't wait for ground check
           const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
-          if (playerBody && this.isPlayerGrounded(playerBody)) {
-            // Force taunt mode
-            this.isTaunting = true
-            this.player.setVelocityX(0)
+          
+          // Force taunt mode
+          this.isTaunting = true
+          this.player.setVelocityX(0)
+          if (playerBody) {
             playerBody.setVelocity(0, 0)
             playerBody.setAcceleration(0, 0)
             playerBody.setAllowGravity(false)
-            this.tauntGravityDisabled = true
-            
-            // Play taunt animation
-            const tauntKey = this.currentTauntFrame === 1 ? 'bittee-taunt' : 'bittee-taunt2'
-            this.player.anims.play(tauntKey, true)
-            
-            // Prevent any movement - only allow flipping with arrow keys
-            this.player.setFlipX(false)  // Start facing right
           }
+          this.tauntGravityDisabled = true
+          
+          // Play taunt animation
+          const tauntKey = this.currentTauntFrame === 1 ? 'bittee-taunt' : 'bittee-taunt2'
+          const tauntSprite = this.currentTauntFrame === 1 ? BITTEE_SPRITES.taunt : BITTEE_SPRITES.taunt2
+          this.player.setTexture(tauntSprite.key)
+          this.player.anims.play(tauntKey, true)
+          
+          // Prevent any movement - only allow flipping with arrow keys
+          this.player.setFlipX(false)  // Start facing right
           
           // Start victory phase after a short delay
           this.time.delayedCall(500, () => {
@@ -9633,8 +9636,10 @@ export class MainScene extends Phaser.Scene {
       // Remove any existing listeners first to prevent duplicates
       this.backgroundMusic1.removeAllListeners('complete')
       this.backgroundMusic1.on('complete', () => {
-        // Double check isBossLevel in case it changed between when event was queued and when it fires
-        if (!this.isBossLevel && this.backgroundMusic1 && !this.backgroundMusic1.isPlaying) {
+        // FIX: Double check isBossLevel and ensure track 1 actually finished
+        // Also check that we're not respawning (which would restart track 1)
+        if (!this.isBossLevel && this.backgroundMusic1 && !this.backgroundMusic1.isPlaying && this.isGameActive) {
+          // Only switch to track 2 if track 1 actually finished (not if it was stopped)
           this.playNextMusicTrack()
         }
       })
@@ -9651,8 +9656,9 @@ export class MainScene extends Phaser.Scene {
       // Remove any existing listeners first to prevent duplicates
       this.backgroundMusic2.removeAllListeners('complete')
       this.backgroundMusic2.on('complete', () => {
-        // Double check isBossLevel in case it changed between when event was queued and when it fires
-        if (!this.isBossLevel && this.backgroundMusic2 && !this.backgroundMusic2.isPlaying) {
+        // FIX: Double check isBossLevel and ensure track 2 actually finished
+        // Only loop back to track 1 if track 2 actually finished (not if it was stopped)
+        if (!this.isBossLevel && this.backgroundMusic2 && !this.backgroundMusic2.isPlaying && this.isGameActive) {
           this.playNextMusicTrack()
         }
       })
