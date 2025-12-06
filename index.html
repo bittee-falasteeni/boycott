@@ -13,8 +13,11 @@
       const isGitHubPages = window.location.hostname.includes('github.io');
       const currentPath = window.location.pathname;
       
+      console.log('Root index.html loaded', { isDev, isGitHubPages, currentPath });
+      
       if (isDev) {
         // Development: load source file
+        console.log('Loading development file: /src/main.ts');
         const script = document.createElement('script');
         script.type = 'module';
         script.src = '/src/main.ts';
@@ -22,10 +25,34 @@
       } else if (isGitHubPages) {
         // Production on GitHub Pages: redirect to /boycott/ if not already there
         if (currentPath === '/' || !currentPath.startsWith('/boycott')) {
+          console.log('Redirecting to /boycott/');
           window.location.replace('/boycott/');
+        } else {
+          console.log('Already at /boycott/, waiting for built index.html to load...');
+          // If we're already at /boycott/, the built index.html should be served
+          // But if it's not loading, let's check after a moment
+          setTimeout(() => {
+            const scripts = document.querySelectorAll('script[type="module"]');
+            console.log('Scripts found:', scripts.length);
+            if (scripts.length === 0) {
+              console.error('No scripts loaded! The built index.html might not be served correctly.');
+              document.getElementById('app').innerHTML = `
+                <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif;">
+                  <h2>Game not loading</h2>
+                  <p>Please check:</p>
+                  <ul style="text-align: left; display: inline-block;">
+                    <li>GitHub Actions deployment completed successfully</li>
+                    <li>GitHub Pages source is set to "GitHub Actions"</li>
+                    <li>Try hard refresh (Ctrl+Shift+R or Cmd+Shift+R)</li>
+                  </ul>
+                  <p style="font-size: 12px; color: #888; margin-top: 20px;">
+                    Check browser console for more details.
+                  </p>
+                </div>
+              `;
+            }
+          }, 2000);
         }
-        // If already at /boycott/, the built index.html should be served automatically
-        // No need to do anything - just let the page load normally
       }
     </script>
   </head>
