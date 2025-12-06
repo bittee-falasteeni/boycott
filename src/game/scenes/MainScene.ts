@@ -2416,8 +2416,8 @@ export class MainScene extends Phaser.Scene {
     
     const infoIcon = this.add.image(infoIconX, infoIconY, 'info-icon')
     infoIcon.setDisplaySize(infoIconSize, infoIconSize)
-    // Use setTintFill to replace black color with HUD background green (0x2f3b32)
-    infoIcon.setTintFill(0x2f3b32)  // Same green as HUD background
+    // FIX: Use brighter color for info icon
+    infoIcon.setTintFill(0x4a5a4a)  // Brighter green than HUD background (0x2f3b32)
     infoIcon.setInteractive({ useHandCursor: true })
     infoIcon.setDepth(21)
     
@@ -6891,32 +6891,38 @@ export class MainScene extends Phaser.Scene {
         color: '#d7ddcc',  // Match theme color
       }).setOrigin(0.5, 0)
 
+      // FIX: Switch order - About Bittee first, then Controls
+      const aboutTitle = this.add.text(-panelWidth / 2 + 32, -panelHeight / 2 + 110, 'About Bittee', {
+        fontSize: '28px',  // Larger
+        fontFamily: 'MontserratBold',
+        color: '#d7ddcc',  // Match theme color
+      })
+
+      // FIX: New About Bittee text with orange-ish red color, comment out original
+      const aboutBody = this.add.text(-panelWidth / 2 + 32, aboutTitle.y + 40,  // Added more space (from 32 to 40)
+        'Bittee boycotts and fights for justice and liberation. Learn from Bittee.',
+        {
+          fontSize: '24px',  // Larger
+          fontFamily: 'Montserrat',
+          color: '#8b2a00',  // Orange-ish red same as info modal bottom sentence
+          wordWrap: { width: panelWidth - 64 },
+          lineSpacing: 6,  // Add spacing between lines
+        },
+      )
+      
+      // COMMENTED OUT: Original About Bittee text (saved for later)
+      // 'Bittee stands in solidarity with the Palestinian call for freedom and dignity. Inspired by Handala and the spirit of BDS, our camp uses joyful resistance to celebrate steadfastness, refuse erasure, and imagine a liberated future.',
+
       // Create Controls subtitle and text separately - larger and nicer
-      const controlsTitle = this.add.text(-panelWidth / 2 + 32, -panelHeight / 2 + 110, 'Controls:', {
+      const controlsTitle = this.add.text(-panelWidth / 2 + 32, aboutBody.y + aboutBody.height + 40, 'Controls:', {
         fontSize: '28px',  // Larger
         fontFamily: 'MontserratBold',
         color: '#d7ddcc',  // Match theme color
       })
       
+      // FIX: Change 'p's to 'b's: "Up" → "Ub", "Jump" → "Jumb", and "T Key" → "'T' Key"
       const controls = this.add.text(-panelWidth / 2 + 32, controlsTitle.y + 40,  // Added more space (from 32 to 40)
-        '- Left/Right Arrows: Move\n- Up Arrow: Jump\n- Space: Throw\n- T Key: Taunt\n\nOn touch devices, use the on-screen buttons.',
-        {
-          fontSize: '24px',  // Larger
-          fontFamily: 'Montserrat',
-          color: '#e0d5b6',  // Match theme parchment color
-          wordWrap: { width: panelWidth - 64 },
-          lineSpacing: 6,  // Add spacing between lines
-        },
-      )
-
-      const aboutTitle = this.add.text(-panelWidth / 2 + 32, controls.y + controls.height + 40, 'About Bittee', {  // Added more space (from 32 to 40)
-        fontSize: '28px',  // Larger
-        fontFamily: 'MontserratBold',
-        color: '#d7ddcc',  // Match theme color
-      })
-
-      const aboutBody = this.add.text(-panelWidth / 2 + 32, aboutTitle.y + 40,  // Added more space (from 32 to 40)
-        'Bittee stands in solidarity with the Palestinian call for freedom and dignity. Inspired by Handala and the spirit of BDS, our camp uses joyful resistance to celebrate steadfastness, refuse erasure, and imagine a liberated future.',
+        '- Left/Right Arrows: Move\n- Ub Arrow: Jumb\n- Space: Throw\n- \'T\' Key: Taunt\n\nOn touch devices, use the on-screen buttons.',
         {
           fontSize: '24px',  // Larger
           fontFamily: 'Montserrat',
@@ -6952,7 +6958,7 @@ export class MainScene extends Phaser.Scene {
       closeButton.setInteractive({ useHandCursor: true })
       closeButton.on('pointerdown', () => this.closeInstructionsPanel())
 
-      panel.add([background, title, controlsTitle, controls, aboutTitle, aboutBody, closeButtonShadow, closeButton])
+      panel.add([background, title, aboutTitle, aboutBody, controlsTitle, controls, closeButtonShadow, closeButton])
       this.instructionsPanel = panel
     }
 
@@ -7018,22 +7024,26 @@ export class MainScene extends Phaser.Scene {
       
       // Build credits
       addTitle('Art')
-      addBody('Bittee (Handala): Inspired by Naji al-Ali')
+      // FIX: Change 'p' to 'b' in "Inspired"
+      addBody('Bittee (Handala): Insbired by Naji al-Ali')
       addBody('')
       
       addTitle('Music')
       addBody('Onadekom')
       addBody('Artists: Hawa Dafi, Busher, SJ')
       addBody('Album: Our Story (2015)')
-      addBody('Provided by: DistroKid')
+      // FIX: Change 'p' to 'b' in "Provided"
+      addBody('Provibed by: DistroKid')
       addBody('')
       
       addBody('Mawtini (موطني)')
       addBody('Original: Ibrahim Tuqan, Muhammad Fulayfil (1934)')
       addBody('Instrumental (1967): Recorded by: Derovolk')
-      addBody('Chiptune - Provided by: Boo! Bros.')
+      // FIX: Change 'p' to 'b' in "Chiptune" and "Provided"
+      addBody('Chibtune - Provibed by: Boo! Bros.')
       addBody('')
       
+      // FIX: Keep 'p' in "Palestine National Anthem"
       addBody('Palestine National Anthem')
       addBody('Fida\'i - Revolutionary - فدائي')
       addBody('Original: Said Al Muzayin, Ali Ismael (1965)')
