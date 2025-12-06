@@ -2413,7 +2413,7 @@ export class MainScene extends Phaser.Scene {
     // Create shadow by duplicating icon, offset 1px right and down
     const infoIconShadow = this.add.image(infoIconX + 1, infoIconY + 1, 'info-icon')
     infoIconShadow.setDisplaySize(infoIconSize, infoIconSize)
-    infoIconShadow.setTintFill(0xd0d0d0)  // Light gray shadow color using tintFill (from setTint)
+    infoIconShadow.setTintFill(0x000000)  // Black shadow color (original)
     infoIconShadow.setAlpha(0.3)  // Subtle shadow opacity
     infoIconShadow.setDepth(20)  // Behind the icon
     
@@ -6951,7 +6951,7 @@ export class MainScene extends Phaser.Scene {
       }).setOrigin(0.5, 0)
 
       // FIX: Switch order - About Bittee first, then Controls
-      const aboutTitle = this.add.text(-panelWidth / 2 + 32, -panelHeight / 2 + 110, 'About Bittee', {
+      const aboutTitle = this.add.text(-panelWidth / 2 + 32, -panelHeight / 2 + 140, 'About Bittee', {
         fontSize: '28px',  // Larger
         fontFamily: 'MontserratBold',
         color: '#d7ddcc',  // Match theme color
@@ -6980,9 +6980,9 @@ export class MainScene extends Phaser.Scene {
         color: '#d7ddcc',  // Match theme color
       })
       
-      // FIX: Change 'p's to 'b's: "Up" → "Ub", "Jump" → "Jumb", and "T Key" → "'T' Key"
+      // FIX: Change 'p's to 'b's: "Up" → "Ub", "Jump" → "Jumb", "Space" → "Sbace", and "T Key" → "'T' Key"
       const controls = this.add.text(-panelWidth / 2 + 32, controlsTitle.y + 40,  // Added more space (from 32 to 40)
-        '- Left/Right Arrows: Move\n- Ub Arrow: Jumb\n- Space: Throw\n- \'T\' Key: Taunt\n\nOn touch devices, use the on-screen buttons.',
+        '- Left/Right Arrows: Move\n- Ub Arrow: Jumb\n- Sbace: Throw\n- \'T\' Key: Taunt\n\nOn touch devices, use the on-screen buttons.',
         {
           fontSize: '24px',  // Larger
           fontFamily: 'Montserrat',
