@@ -2413,7 +2413,7 @@ export class MainScene extends Phaser.Scene {
     // Create shadow by duplicating icon, offset 1px right and down
     const infoIconShadow = this.add.image(infoIconX + 1, infoIconY + 1, 'info-icon')
     infoIconShadow.setDisplaySize(infoIconSize, infoIconSize)
-    infoIconShadow.setTintFill(0x000000)  // Black shadow color (original)
+    infoIconShadow.setTintFill(0xd0d0d0)  // Bright grey shadow color
     infoIconShadow.setAlpha(0.3)  // Subtle shadow opacity
     infoIconShadow.setDepth(20)  // Behind the icon
     
