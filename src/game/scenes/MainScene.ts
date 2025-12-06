@@ -8164,6 +8164,11 @@ export class MainScene extends Phaser.Scene {
     this.time.timeScale = 1
     this.isGameActive = true  // Set game as active so music can play
 
+    // FIX: Ensure sound system is not muted
+    if (this.sound) {
+      this.sound.setMute(false)
+    }
+
     // FIX: Clear all triangles when starting/respawning game
     this.clearAllTriangles()
 
@@ -9876,12 +9881,21 @@ export class MainScene extends Phaser.Scene {
     // No track is playing - start with track 1
     this.currentMusicTrack = 1
     if (this.backgroundMusic1) {
+      // Ensure music is not muted
+      if (this.backgroundMusic1.setMute) {
+        this.backgroundMusic1.setMute(false)
+      }
+      
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
       if (volumeMultiplier > 0) {
         // Always play, even if it says it's playing (might be paused or in wrong state)
         if (this.backgroundMusic1.isPaused) {
           this.backgroundMusic1.resume()
         } else if (!this.backgroundMusic1.isPlaying) {
+          this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+        } else {
+          // If it says it's playing but we can't hear it, try stopping and restarting
+          this.backgroundMusic1.stop()
           this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
         }
       }
