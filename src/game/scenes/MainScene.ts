@@ -1651,19 +1651,15 @@ export class MainScene extends Phaser.Scene {
       const posBeforeLock = { x: this.player.x, y: this.player.y }
       const yDrift = posBeforeLock.y - feetY
       if (Math.abs(yDrift) > 0.1) {
-        console.log(`[CROUCH_PHYSICS] Frame ${this.game.loop.frame}: Y drift in physics update! Before: ${posBeforeLock.y.toFixed(2)}, Target: ${feetY.toFixed(2)}, Drift: ${yDrift.toFixed(2)}`)
-        console.log(`[CROUCH_PHYSICS] Body enabled: ${body?.enable}, immovable: ${body?.immovable}, gravity: ${body?.allowGravity}`)
       }
       this.player.setY(feetY)
       if (body) {
         // CRITICAL: Ensure body is disabled during transition
         if (body.enable) {
-          console.log(`[CROUCH_PHYSICS] WARNING: Body is enabled during transition! Disabling...`)
           body.enable = false
         }
         const velBeforeLock = { x: body.velocity.x, y: body.velocity.y }
         if (Math.abs(velBeforeLock.x) > 0.1 || Math.abs(velBeforeLock.y) > 0.1) {
-          console.log(`[CROUCH_PHYSICS] Frame ${this.game.loop.frame}: Velocity in physics update! velX: ${velBeforeLock.x.toFixed(2)}, velY: ${velBeforeLock.y.toFixed(2)}`)
         }
         // Sync body to sprite position, but keep it disabled
         body.updateFromGameObject()
@@ -1684,7 +1680,7 @@ export class MainScene extends Phaser.Scene {
     }
     } catch (error) {
       // Prevent crashes on mobile by catching errors in update loop
-      console.error('Error in update loop:', error)
+      // Error in update loop - continue running
       // Continue running - don't crash the game
     }
   }
@@ -2405,7 +2401,6 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5)
 
     // Add info icon in top left corner
-    console.log('SETTINGS PANEL: Creating info icon')
     const infoIconSize = 64  // Larger icon (increased from 56)
     const infoIconX = worldWidth / 2 - panelWidth / 2 + 50  // Shifted right more (from 45 to 50)
     const infoIconY = worldHeight / 2 - panelHeight / 2 + 58  // Shifted down more (from 53 to 58)
@@ -2414,7 +2409,7 @@ export class MainScene extends Phaser.Scene {
     const infoIconShadow = this.add.image(infoIconX + 1, infoIconY + 1, 'info-icon')
     infoIconShadow.setDisplaySize(infoIconSize, infoIconSize)
     infoIconShadow.setTintFill(0xd0d0d0)  // Bright grey shadow color
-    infoIconShadow.setAlpha(0.3)  // Subtle shadow opacity
+    infoIconShadow.setAlpha(0.5)  // More visible shadow opacity
     infoIconShadow.setDepth(20)  // Behind the icon
     
     const infoIcon = this.add.image(infoIconX, infoIconY, 'info-icon')
@@ -4420,7 +4415,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handlePlayerMovement(): void {
-    console.log('handlePlayerMovement CALLED')
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
     if (!body) {
       return
@@ -5762,8 +5756,8 @@ export class MainScene extends Phaser.Scene {
   }
 
   private activateShield(): void {
-    // Play shield sound
-    this.playSound('shield-sound', 0.5)
+    // Play shield sound at 25% volume (reduced from 50%)
+    this.playSound('shield-sound', 0.25)
 
     // Cancel existing shield if active
     if (this.shieldTimer) {
@@ -6375,7 +6369,7 @@ export class MainScene extends Phaser.Scene {
       this.spawnBall(x, spawnY, entry.size, Phaser.Math.RND.pick([-1, 1]), textureKey)
     })
     } catch (error) {
-      console.error('Error in spawnLevelWave:', error)
+      // Error in spawnLevelWave
       // Continue - don't crash the game
     }
   }
@@ -6907,7 +6901,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   private openInstructionsPanel(): void {
-    console.log('openInstructionsPanel CALLED')
     const worldWidth = this.scale.width
     const worldHeight = this.scale.height
 
@@ -6941,7 +6934,6 @@ export class MainScene extends Phaser.Scene {
       })
 
       // FIX: New About Bittee text with orange-ish red color, comment out original
-      console.log('FIELD NOTES: Creating About Bittee with new text')
       const aboutBody = this.add.text(-panelWidth / 2 + 32, aboutTitle.y + 40,  // Added more space (from 32 to 40)
         'Bittee boycotts and fights for justice and liberation. Learn from Bittee.',
         {
@@ -8075,7 +8067,7 @@ export class MainScene extends Phaser.Scene {
         this.bullets.clear(true, true)
         this.isGameActive = true
       } catch (recoveryError) {
-        console.error('Recovery failed:', recoveryError)
+        // Recovery failed
       }
     }
   }
@@ -8172,6 +8164,7 @@ export class MainScene extends Phaser.Scene {
     this.physics.world.resume()
     this.tweens.resumeAll()
     this.time.timeScale = 1
+    this.isGameActive = true  // Set game as active so music can play
 
     // FIX: Clear all triangles when starting/respawning game
     this.clearAllTriangles()
@@ -8650,7 +8643,6 @@ export class MainScene extends Phaser.Scene {
     // Create jet - start off-screen left
     // Check if jet texture exists
     if (!this.textures.exists('jet')) {
-      console.warn('Jet texture not loaded!')
       return
     }
     
@@ -8804,7 +8796,6 @@ export class MainScene extends Phaser.Scene {
     } else if (enemyType === 'tank') {
       const tankIndex = enemy.getData('tankIndex') as number
       if (tankIndex === undefined || tankIndex === null || !this.tankHealths[tankIndex]) {
-        console.warn('Invalid tank index or health not found:', tankIndex)
         return
       }
       this.tankHealths[tankIndex]--
@@ -8926,7 +8917,6 @@ export class MainScene extends Phaser.Scene {
     // Create tank sprite
     const tank = this.physics.add.sprite(spawnX, 0, 'tank')
     if (!tank) {
-      console.warn('Failed to create tank sprite')
       return
     }
     // Set scale first (15% larger than 0.4)
@@ -9797,8 +9787,8 @@ export class MainScene extends Phaser.Scene {
     ]
     soundEffectKeys.forEach((key) => {
       if (this.cache.audio.exists(key)) {
-        // Ball bounce gets 100% volume, everything else 70%
-        const baseVolume = key === 'ball-bounce' ? 1.0 : 0.7
+        // Ball bounce gets 50% volume (reduced from 100%), everything else 70%
+        const baseVolume = key === 'ball-bounce' ? 0.5 : 0.7
         this.soundEffects.set(key, this.sound.add(key, { volume: baseVolume }))
       }
     })
@@ -9920,13 +9910,19 @@ export class MainScene extends Phaser.Scene {
       // Play track 2
       this.currentMusicTrack = 2
       if (this.backgroundMusic2) {
-        this.backgroundMusic2.play()
+        const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+        if (volumeMultiplier > 0) {
+          this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
+        }
       }
     } else {
       // Loop back to track 1
       this.currentMusicTrack = 1
       if (this.backgroundMusic1) {
-        this.backgroundMusic1.play()
+        const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+        if (volumeMultiplier > 0) {
+          this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+        }
       }
     }
   }
@@ -10727,17 +10723,17 @@ export class MainScene extends Phaser.Scene {
   }
 
   private playBallBounceSound(): void {
-    // Play ball bounce at 100% volume
+    // Play ball bounce at 50% volume (reduced from 100%)
     const bounceSound = this.soundEffects.get('ball-bounce')
     if (bounceSound && bounceSound instanceof Phaser.Sound.BaseSound) {
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
       if (volumeMultiplier > 0) {
-        bounceSound.play({ volume: 1.0 * volumeMultiplier })
+        bounceSound.play({ volume: 0.5 * volumeMultiplier })
       }
     } else {
-      // Fallback: try playing directly from cache at full volume
+      // Fallback: try playing directly from cache at 50% volume
       if (this.cache.audio.exists('ball-bounce')) {
-        this.sound.play('ball-bounce', { volume: 1.0 * VOLUME_LEVELS[this.settings.volumeIndex].value })
+        this.sound.play('ball-bounce', { volume: 0.5 * VOLUME_LEVELS[this.settings.volumeIndex].value })
       }
     }
   }
