@@ -8418,7 +8418,7 @@ export class MainScene extends Phaser.Scene {
     this.unlockLevel(nextIndex)
   }
 
-  private getBubbleDisplaySize(textureKey: string, scale: number): number {
+  private getBubbleDisplaySize(_textureKey: string, scale: number): number {
     // Use a fixed base size for all brands to ensure consistent sizing
     // This prevents different brand PNGs (which may have different dimensions) from displaying at different sizes
     const sourceSize = 256  // Fixed base size - all brands normalized to this
