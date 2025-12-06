@@ -1279,12 +1279,14 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number): void {
-    if (this.isPausedForSettings || !this.isGameActive) {
-      this.updateBossLevel()  // Still update boss level even when paused (for transitions)
-      return
-    }
-    
-    this.updateBossLevel()
+    // Wrap update in try-catch to prevent crashes on mobile
+    try {
+      if (this.isPausedForSettings || !this.isGameActive) {
+        this.updateBossLevel()  // Still update boss level even when paused (for transitions)
+        return
+      }
+      
+      this.updateBossLevel()
     
     // CRITICAL: Lock player position during crouch exit transition to prevent jitter
     // This must run at the very start of update to prevent any other systems from moving the player
@@ -1637,6 +1639,11 @@ export class MainScene extends Phaser.Scene {
       body.setVelocityY(0)
       body.setVelocityX(0)
       body.updateFromGameObject()
+    }
+    } catch (error) {
+      // Prevent crashes on mobile by catching errors in update loop
+      console.error('Error in update loop:', error)
+      // Continue running - don't crash the game
     }
   }
 
