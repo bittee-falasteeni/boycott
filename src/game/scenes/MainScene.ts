@@ -3031,8 +3031,35 @@ export class MainScene extends Phaser.Scene {
         displayHeight = maxDisplaySize
       }
       
+      // FIX: Brand-specific size multipliers for cities modal grid
+      const brandMultipliers: Record<string, number> = {
+        'ball-bk': 1.4,  // Burger King - too small, make larger
+        'ball-microsoft': 1.25,  // Microsoft - make larger
+        'ball-puma': 1.25,  // Puma - make larger
+        'ball-disneyplus': 1.25,  // Disney+ - make larger
+      }
+      
+      const multiplier = brandMultipliers[brandKey] || 1.0
+      const adjustedWidth = displayWidth * multiplier
+      const adjustedHeight = displayHeight * multiplier
+      
+      // Ensure we don't exceed the grid cell size (leave 5% padding)
+      const maxSize = brandSize * 0.95
+      let finalWidth = adjustedWidth
+      let finalHeight = adjustedHeight
+      
+      // Maintain aspect ratio while respecting max size
+      if (finalWidth > maxSize) {
+        finalWidth = maxSize
+        finalHeight = finalWidth * (displayHeight / displayWidth)
+      }
+      if (finalHeight > maxSize) {
+        finalHeight = maxSize
+        finalWidth = finalHeight * (displayWidth / displayHeight)
+      }
+      
       const brandImage = this.add.image(0, 0, brandKey)
-      brandImage.setDisplaySize(displayWidth, displayHeight)
+      brandImage.setDisplaySize(finalWidth, finalHeight)
       brandImage.setOrigin(0.5, 0.5)
       brandImage.setDepth(2)
       
@@ -6104,9 +6131,22 @@ export class MainScene extends Phaser.Scene {
 
               // Scale brand image to fit bubble consistently - use 70% of bubble size
               const brandDisplaySize = bubbleSize * 0.7
+              
+              // FIX: Brand-specific size multipliers for better visibility in balls
+              const brandMultipliers: Record<string, number> = {
+                'ball-bk': 1.4,  // Burger King - too small, make larger
+                'ball-microsoft': 1.25,  // Microsoft - make larger
+                'ball-puma': 1.25,  // Puma - make larger
+                'ball-disneyplus': 1.25,  // Disney+ - make larger
+              }
+              
+              const brandKey = this.getBrandKey(baseKey)
+              const multiplier = brandMultipliers[brandKey] || 1.0
+              const adjustedDisplaySize = brandDisplaySize * multiplier
+              
               const brandAspectRatio = img.width / img.height
-              let brandWidth = brandDisplaySize
-              let brandHeight = brandDisplaySize
+              let brandWidth = adjustedDisplaySize
+              let brandHeight = adjustedDisplaySize
               
               // Preserve aspect ratio
               if (brandAspectRatio > 1) {
@@ -6114,6 +6154,17 @@ export class MainScene extends Phaser.Scene {
                 brandHeight = brandWidth / brandAspectRatio
               } else {
                 // Taller than wide
+                brandWidth = brandHeight * brandAspectRatio
+              }
+              
+              // Ensure we don't exceed bubble bounds
+              const maxSize = bubbleSize * 0.9  // Leave some padding
+              if (brandWidth > maxSize) {
+                brandWidth = maxSize
+                brandHeight = brandWidth / brandAspectRatio
+              }
+              if (brandHeight > maxSize) {
+                brandHeight = maxSize
                 brandWidth = brandHeight * brandAspectRatio
               }
               
@@ -8375,11 +8426,22 @@ export class MainScene extends Phaser.Scene {
     this.unlockLevel(nextIndex)
   }
 
-  private getBubbleDisplaySize(_textureKey: string, scale: number): number {
+  private getBubbleDisplaySize(textureKey: string, scale: number): number {
     // Use a fixed base size for all brands to ensure consistent sizing
     // This prevents different brand PNGs (which may have different dimensions) from displaying at different sizes
     const sourceSize = 256  // Fixed base size - all brands normalized to this
-    return sourceSize * scale
+    
+    // FIX: Brand-specific size multipliers for better visibility
+    const brandMultipliers: Record<string, number> = {
+      'ball-bk': 1.4,  // Burger King - too small, make larger
+      'ball-microsoft': 1.25,  // Microsoft - make larger
+      'ball-puma': 1.25,  // Puma - make larger
+      'ball-disneyplus': 1.25,  // Disney+ - make larger
+    }
+    
+    // Check if this texture key has a brand-specific multiplier
+    const multiplier = brandMultipliers[textureKey] || 1.0
+    return sourceSize * scale * multiplier
   }
 
   private tryTaunt(): void {
