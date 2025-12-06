@@ -13,6 +13,7 @@ export default defineConfig({
   },
   build: {
     assetsDir: 'assets',
+    // Minification re-enabled - code is verified to be in build
     rollupOptions: {
       output: {
         assetFileNames: (assetInfo) => {
