@@ -4408,15 +4408,16 @@ export class MainScene extends Phaser.Scene {
 
     if (this.isTaunting) {
       // Allow left/right to flip bittee horizontally while taunting
+      // FIX: Reverse the flip - right should flip left, left should flip right
       if (leftDown) {
-        this.player.setFlipX(true)
+        this.player.setFlipX(false)  // Left button flips right (facing right)
         // Prevent any x-axis movement
         this.player.setVelocityX(0)
         if (body) {
           body.setVelocityX(0)
         }
       } else if (rightDown) {
-        this.player.setFlipX(false)
+        this.player.setFlipX(true)  // Right button flips left (facing left)
         // Prevent any x-axis movement
         this.player.setVelocityX(0)
         if (body) {
@@ -5842,6 +5843,36 @@ export class MainScene extends Phaser.Scene {
       // This prevents movement glitches when refreshing slow motion
     }
     
+    // FIX: Apply slow motion to ALL balls immediately, not just on bounce
+    this.isSlowMotion = true
+    const slowMotionFactor = 0.3
+    const baseGravity = 240
+    
+    this.balls.children.entries.forEach((ballObj) => {
+      const ball = ballObj as Phaser.Physics.Arcade.Image
+      if (!ball || !ball.active) return
+      const ballBody = ball.body as Phaser.Physics.Arcade.Body
+      if (!ballBody) return
+      
+      // Only apply if not already applied
+      if (!ball.getData('slowMotionApplied')) {
+        // Store original velocities BEFORE applying slow motion
+        const currentVelX = ballBody.velocity.x
+        const currentVelY = ballBody.velocity.y
+        const currentGravity = ballBody.gravity.y || baseGravity
+        
+        // Store original values
+        ball.setData('originalVelX', currentVelX)
+        ball.setData('originalVelY', currentVelY)
+        ball.setData('originalGravity', currentGravity)
+        
+        // Apply slow motion factor
+        ballBody.setVelocity(currentVelX * slowMotionFactor, currentVelY * slowMotionFactor)
+        ballBody.setGravityY(currentGravity * slowMotionFactor)
+        ball.setData('slowMotionApplied', true)
+      }
+    })
+    
     // Don't change physics time scale - that affects everything including Bittee
     // Instead, we'll slow down balls in the update loop and when they spawn/bounce
     this.isSlowMotion = true
@@ -5880,9 +5911,16 @@ export class MainScene extends Phaser.Scene {
         let restoredVelY: number
         
         if (originalVelX !== undefined && originalVelY !== undefined) {
-          // Use stored original velocities (preserves direction from when slow motion started)
-          restoredVelX = originalVelX
-          restoredVelY = originalVelY
+          // FIX: Use stored original velocities and preserve direction
+          // Calculate direction from original velocities to prevent reversal
+          const originalSpeedX = Math.abs(originalVelX)
+          const originalSpeedY = Math.abs(originalVelY)
+          const currentDirX = Math.sign(body.velocity.x)
+          const currentDirY = Math.sign(body.velocity.y)
+          
+          // Preserve current direction but restore original speed
+          restoredVelX = originalSpeedX * (currentDirX !== 0 ? currentDirX : Math.sign(originalVelX))
+          restoredVelY = originalSpeedY * (currentDirY !== 0 ? currentDirY : Math.sign(originalVelY))
         } else {
           // Fallback: if original velocities weren't stored, divide current by factor
           // This should only happen if slow motion was applied before this fix
@@ -5892,7 +5930,11 @@ export class MainScene extends Phaser.Scene {
           restoredVelY = currentVelY / slowMotionFactor
         }
         
-        body.setVelocity(restoredVelX, restoredVelY)
+        // FIX: Ensure we don't reverse direction - preserve sign
+        const finalVelX = Math.abs(restoredVelX) * Math.sign(body.velocity.x || restoredVelX)
+        const finalVelY = Math.abs(restoredVelY) * Math.sign(body.velocity.y || restoredVelY)
+        
+        body.setVelocity(finalVelX, finalVelY)
         body.setGravityY(originalGravity ?? baseGravity)
         
         // Clear flags
@@ -8695,7 +8737,17 @@ export class MainScene extends Phaser.Scene {
             this.startTankPhase(tankIndex + 2)
           })
         } else {
-          // All tanks destroyed - victory!
+          // All tanks destroyed - automatically enter taunt mode, then victory!
+          // FIX: Enter taunt mode when final tank is destroyed
+          this.tryTaunt()
+          // Prevent movement - only allow flipping with arrow keys
+          this.player.setVelocityX(0)
+          if (body) {
+            body.setVelocityX(0)
+            body.setVelocityY(0)
+            body.setAcceleration(0, 0)
+          }
+          // Start victory phase after a short delay
           this.time.delayedCall(500, () => {
             this.startVictoryPhase()
           })
@@ -9681,7 +9733,19 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
-    // Start with track 1
+    // FIX: Check which track is currently playing and continue it instead of restarting
+    // This prevents track 1 from playing on top of track 2 when respawning
+    if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+      // Track 2 is playing - keep it playing, don't restart track 1
+      this.currentMusicTrack = 2
+      return
+    } else if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+      // Track 1 is playing - keep it playing
+      this.currentMusicTrack = 1
+      return
+    }
+
+    // No track is playing - start with track 1
     this.currentMusicTrack = 1
     if (this.backgroundMusic1 && !this.backgroundMusic1.isPlaying) {
       this.backgroundMusic1.play()
@@ -9960,11 +10024,47 @@ export class MainScene extends Phaser.Scene {
   }
   
   private removeAimingTriangle(): void {
-    // Remove all aiming triangles
-    this.aimingTriangles.forEach((triangle) => {
-      triangle.destroy()
+    // FIX: Remove all aiming triangles and clean up orphaned ones
+    this.aimingTriangles.forEach((triangle, ball) => {
+      if (triangle && triangle.scene) {
+        triangle.destroy()
+      }
+      // Also check ball's attached indicator
+      if (ball && ball.scene) {
+        const attachedTriangle = ball.getData('aimIndicator') as Phaser.GameObjects.Text | undefined
+        if (attachedTriangle && attachedTriangle.scene) {
+          attachedTriangle.destroy()
+          ball.setData('aimIndicator', undefined)
+        }
+      }
     })
     this.aimingTriangles.clear()
+    
+    // FIX: Also clean up any orphaned triangles in the scene
+    this.children.list.forEach((child) => {
+      if (child instanceof Phaser.GameObjects.Text) {
+        const text = child as Phaser.GameObjects.Text
+        // Check if this text is a triangle (contains the triangle emoji)
+        if (text.text && text.text.includes('\u25BC')) {
+          // Check if it's NOT in our Maps
+          let foundInMap = false
+          this.aimingTriangles.forEach((tri) => {
+            if (tri === text) foundInMap = true
+          })
+          this.projectedHitIndicators.forEach((ind) => {
+            if (ind === text) foundInMap = true
+          })
+          
+          if (!foundInMap && text.scene) {
+            try {
+              text.destroy()
+            } catch (e) {
+              // Ignore errors if already destroyed
+            }
+          }
+        }
+      }
+    })
   }
   
   // DEBUG: Create visual debug lines showing max bounce height for each ball size
@@ -10114,21 +10214,65 @@ export class MainScene extends Phaser.Scene {
   }
 
   private removeAimingTriangleForBall(ball: Phaser.Physics.Arcade.Image): void {
+    // FIX: More thorough cleanup to prevent stuck triangles
     const triangle = this.aimingTriangles.get(ball)
     if (triangle) {
-      // FIX: Always destroy the GameObject, even if it's already inactive
+      // Always destroy the GameObject, even if it's already inactive
       if (triangle.scene) {
-        triangle.destroy()
+        try {
+          triangle.destroy()
+        } catch (e) {
+          // Ignore errors if already destroyed
+        }
       }
       this.aimingTriangles.delete(ball)
-    } else {
-      // FIX: Also check if triangle exists in scene but not in Map (orphaned)
-      // Check ball's data for attached indicator
+    }
+    
+    // FIX: Also check if triangle exists in scene but not in Map (orphaned)
+    // Check ball's data for attached indicator
+    if (ball && ball.scene) {
       const attachedTriangle = ball.getData('aimIndicator') as Phaser.GameObjects.Text | undefined
       if (attachedTriangle && attachedTriangle.scene) {
-        attachedTriangle.destroy()
+        try {
+          attachedTriangle.destroy()
+        } catch (e) {
+          // Ignore errors if already destroyed
+        }
         ball.setData('aimIndicator', undefined)
       }
+    }
+    
+    // FIX: Also search scene for any orphaned triangles near this ball's position
+    if (ball && ball.scene) {
+      const ballX = ball.x
+      const ballY = ball.y
+      this.children.list.forEach((child) => {
+        if (child instanceof Phaser.GameObjects.Text) {
+          const text = child as Phaser.GameObjects.Text
+          if (text.text && text.text.includes('\u25BC')) {
+            // Check if triangle is near this ball (likely orphaned)
+            const distance = Phaser.Math.Distance.Between(text.x, text.y, ballX, ballY)
+            if (distance < 100) {
+              // Check if it's not in our Maps
+              let foundInMap = false
+              this.aimingTriangles.forEach((tri) => {
+                if (tri === text) foundInMap = true
+              })
+              this.projectedHitIndicators.forEach((ind) => {
+                if (ind === text) foundInMap = true
+              })
+              
+              if (!foundInMap && text.scene) {
+                try {
+                  text.destroy()
+                } catch (e) {
+                  // Ignore errors if already destroyed
+                }
+              }
+            }
+          }
+        }
+      })
     }
   }
 
