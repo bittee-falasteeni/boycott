@@ -5911,14 +5911,19 @@ export class MainScene extends Phaser.Scene {
         let restoredVelY: number
         
         if (originalVelX !== undefined && originalVelY !== undefined) {
-          // FIX: Use stored original velocities and preserve direction
-          // Calculate direction from original velocities to prevent reversal
+          // FIX: Preserve CURRENT direction (ball may have bounced during slow motion)
+          // but restore to original speed magnitude
+          const currentVelX = body.velocity.x
+          const currentVelY = body.velocity.y
+          const currentDirX = Math.sign(currentVelX)
+          const currentDirY = Math.sign(currentVelY)
+          
+          // Get original speed magnitudes
           const originalSpeedX = Math.abs(originalVelX)
           const originalSpeedY = Math.abs(originalVelY)
-          const currentDirX = Math.sign(body.velocity.x)
-          const currentDirY = Math.sign(body.velocity.y)
           
-          // Preserve current direction but restore original speed
+          // Use current direction (preserves bounces during slow motion) with original speed
+          // If current direction is 0 (ball stopped), use original direction
           restoredVelX = originalSpeedX * (currentDirX !== 0 ? currentDirX : Math.sign(originalVelX))
           restoredVelY = originalSpeedY * (currentDirY !== 0 ? currentDirY : Math.sign(originalVelY))
         } else {
@@ -5930,11 +5935,7 @@ export class MainScene extends Phaser.Scene {
           restoredVelY = currentVelY / slowMotionFactor
         }
         
-        // FIX: Ensure we don't reverse direction - preserve sign
-        const finalVelX = Math.abs(restoredVelX) * Math.sign(body.velocity.x || restoredVelX)
-        const finalVelY = Math.abs(restoredVelY) * Math.sign(body.velocity.y || restoredVelY)
-        
-        body.setVelocity(finalVelX, finalVelY)
+        body.setVelocity(restoredVelX, restoredVelY)
         body.setGravityY(originalGravity ?? baseGravity)
         
         // Clear flags
