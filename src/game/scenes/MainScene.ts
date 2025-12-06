@@ -448,6 +448,8 @@ const LEVEL_BALL_WAVES: Array<Array<{ size: BallSize; textureKey: string }>> = [
   ],
 ]
 
+// TEST: This should appear in build
+console.log('=== MAINSCENE CLASS DEFINED ===')
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -2403,6 +2405,7 @@ export class MainScene extends Phaser.Scene {
       .setOrigin(0.5)
 
     // Add info icon in top left corner
+    console.log('SETTINGS PANEL: Creating info icon')
     const infoIconSize = 64  // Larger icon (increased from 56)
     const infoIconX = worldWidth / 2 - panelWidth / 2 + 50  // Shifted right more (from 45 to 50)
     const infoIconY = worldHeight / 2 - panelHeight / 2 + 58  // Shifted down more (from 53 to 58)
@@ -2417,6 +2420,7 @@ export class MainScene extends Phaser.Scene {
     const infoIcon = this.add.image(infoIconX, infoIconY, 'info-icon')
     infoIcon.setDisplaySize(infoIconSize, infoIconSize)
     // FIX: Use brighter color for info icon
+    console.log('INFO ICON: Setting brighter color 0x4a5a4a')
     infoIcon.setTintFill(0x4a5a4a)  // Brighter green than HUD background (0x2f3b32)
     infoIcon.setInteractive({ useHandCursor: true })
     infoIcon.setDepth(21)
@@ -4424,6 +4428,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handlePlayerMovement(): void {
+    console.log('handlePlayerMovement CALLED')
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
     if (!body) {
       return
@@ -4469,7 +4474,9 @@ export class MainScene extends Phaser.Scene {
       // Allow left/right to flip bittee horizontally while taunting
       // FIX: Right arrow button should flip it first (be the primary flip button)
       // Right flips to left (setFlipX(true)), left flips to right (setFlipX(false))
+      // DEBUG: Verify this code is running
       if (rightDown) {
+        console.log('TAUNT FLIP: Right arrow pressed - flipping LEFT')
         this.player.setFlipX(true)  // Right button flips left (facing left)
         // Prevent any x-axis movement
         this.player.setVelocityX(0)
@@ -6917,6 +6924,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private openInstructionsPanel(): void {
+    console.log('openInstructionsPanel CALLED')
     const worldWidth = this.scale.width
     const worldHeight = this.scale.height
 
@@ -6950,6 +6958,7 @@ export class MainScene extends Phaser.Scene {
       })
 
       // FIX: New About Bittee text with orange-ish red color, comment out original
+      console.log('FIELD NOTES: Creating About Bittee with new text')
       const aboutBody = this.add.text(-panelWidth / 2 + 32, aboutTitle.y + 40,  // Added more space (from 32 to 40)
         'Bittee boycotts and fights for justice and liberation. Learn from Bittee.',
         {
