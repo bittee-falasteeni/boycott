@@ -2,25 +2,67 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/boycott/bittee-logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bittee – Falasteeni</title>
-    <script>
-      // Simple redirect for development
-      // In production, GitHub Actions serves dist/index.html directly
+    <script type="module">
       const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('127.0.0.1');
+      const isGitHubPages = window.location.hostname.includes('github.io');
+      
       if (isDev) {
-        // Development: redirect to load source file
-        window.location.replace('/src/main.ts');
-      } else {
-        // Production: If this file is being served, it means GitHub Actions isn't working
-        // Just redirect to /boycott/ and let the built index.html handle it
-        if (!window.location.pathname.startsWith('/boycott')) {
-          window.location.replace('/boycott/');
-        }
+        // Development: load source file directly
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = '/src/main.ts';
+        document.head.appendChild(script);
+      } else if (isGitHubPages) {
+        // Production on GitHub Pages
+        // Try to fetch the built index.html to get the correct script paths
+        fetch('/boycott/index.html')
+          .then(response => {
+            if (response.ok) {
+              return response.text();
+            }
+            throw new Error('Could not fetch built index.html');
+          })
+          .then(html => {
+            // Parse the HTML to find script and link tags
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const scripts = doc.querySelectorAll('script[type="module"]');
+            const links = doc.querySelectorAll('link[rel="stylesheet"]');
+            
+            // Add stylesheets
+            links.forEach(link => {
+              const newLink = link.cloneNode(true);
+              document.head.appendChild(newLink);
+            });
+            
+            // Add scripts
+            scripts.forEach(script => {
+              const newScript = script.cloneNode(true);
+              document.head.appendChild(newScript);
+            });
+          })
+          .catch(error => {
+            console.error('Failed to load built files:', error);
+            document.getElementById('app').innerHTML = `
+              <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                <h2>Game not loading</h2>
+                <p>GitHub Actions deployment may not be complete.</p>
+                <p style="font-size: 14px; color: #888; margin-top: 20px;">
+                  Please check:<br/>
+                  - GitHub Actions tab: Is deployment complete?<br/>
+                  - GitHub Pages Settings: Source should be "GitHub Actions"<br/>
+                  - Try hard refresh (Ctrl+Shift+R or Cmd+Shift+R)
+                </p>
+              </div>
+            `;
+          });
       }
     </script>
   </head>
   <body>
-    <div id="app">Loading...</div>
+    <div id="app"></div>
   </body>
 </html>
