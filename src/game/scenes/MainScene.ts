@@ -4461,7 +4461,6 @@ export class MainScene extends Phaser.Scene {
       // Right flips to left (setFlipX(true)), left flips to right (setFlipX(false))
       // DEBUG: Verify this code is running
       if (rightDown) {
-        console.log('TAUNT FLIP: Right arrow pressed - flipping LEFT')
         this.player.setFlipX(true)  // Right button flips left (facing left)
         // Prevent any x-axis movement
         this.player.setVelocityX(0)
@@ -8059,7 +8058,7 @@ export class MainScene extends Phaser.Scene {
         }
       }
     } catch (error) {
-      // Error in startLevelFromSelection
+      console.error('Error in startLevelFromSelection:', error)
       // Try to recover by at least clearing game objects
       try {
         this.balls.clear(true, true)
@@ -8647,7 +8646,6 @@ export class MainScene extends Phaser.Scene {
     
     this.jet = this.physics.add.sprite(-150, this.jetY, 'jet')
     if (!this.jet) {
-      console.warn('Failed to create jet sprite')
       return
     }
     this.jet.setScale(0.4)  // Smaller scale
@@ -9706,6 +9704,7 @@ export class MainScene extends Phaser.Scene {
       this.backgroundMusic1 = this.sound.add('bittee-mawtini1', {
         loop: false, // We'll handle looping manually
         volume: 0.25, // 50% of 50% = 25% volume for background music
+        mute: false, // Ensure not muted
       })
       
       // Set up listener to play track 2 when track 1 ends (only if not in boss level)
@@ -9726,6 +9725,7 @@ export class MainScene extends Phaser.Scene {
       this.backgroundMusic2 = this.sound.add('bittee-mawtini2', {
         loop: false, // We'll handle looping manually
         volume: 0.25, // 50% of 50% = 25% volume for background music
+        mute: false, // Ensure not muted
       })
       
       // Set up listener to play track 1 when track 2 ends (loops back, only if not in boss level)
@@ -9875,10 +9875,15 @@ export class MainScene extends Phaser.Scene {
 
     // No track is playing - start with track 1
     this.currentMusicTrack = 1
-    if (this.backgroundMusic1 && !this.backgroundMusic1.isPlaying) {
+    if (this.backgroundMusic1) {
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
       if (volumeMultiplier > 0) {
-        this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+        // Always play, even if it says it's playing (might be paused or in wrong state)
+        if (this.backgroundMusic1.isPaused) {
+          this.backgroundMusic1.resume()
+        } else if (!this.backgroundMusic1.isPlaying) {
+          this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+        }
       }
     }
     
