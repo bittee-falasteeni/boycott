@@ -36,6 +36,8 @@
           })
           .then(html => {
             console.log('Fetched HTML, parsing...');
+            console.log('HTML content (first 500 chars):', html.substring(0, 500));
+            
             // Parse the HTML to find script and link tags
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
@@ -44,22 +46,68 @@
             
             console.log(`Found ${scripts.length} scripts and ${links.length} stylesheets`);
             
-            // Add stylesheets
-            links.forEach(link => {
-              const newLink = link.cloneNode(true);
-              newLink.onerror = (e) => console.error('Failed to load stylesheet:', link.href, e);
+            // Log what we found
+            scripts.forEach((script, i) => {
+              console.log(`Script ${i + 1}:`, {
+                src: script.getAttribute('src'),
+                crossorigin: script.getAttribute('crossorigin'),
+                type: script.getAttribute('type')
+              });
+            });
+            
+            links.forEach((link, i) => {
+              console.log(`Stylesheet ${i + 1}:`, {
+                href: link.getAttribute('href'),
+                rel: link.getAttribute('rel'),
+                crossorigin: link.getAttribute('crossorigin')
+              });
+            });
+            
+            // Add stylesheets first
+            links.forEach((link, index) => {
+              const href = link.getAttribute('href');
+              console.log(`Loading stylesheet ${index + 1}:`, href);
+              
+              const newLink = document.createElement('link');
+              newLink.rel = 'stylesheet';
+              newLink.href = href;
+              if (link.hasAttribute('crossorigin')) {
+                newLink.crossOrigin = link.getAttribute('crossorigin') || 'anonymous';
+              }
+              newLink.onerror = (e) => {
+                console.error(`Failed to load stylesheet ${index + 1}:`, href, e);
+              };
+              newLink.onload = () => {
+                console.log(`Stylesheet ${index + 1} loaded:`, href);
+              };
               document.head.appendChild(newLink);
             });
             
             // Add scripts
             scripts.forEach((script, index) => {
-              const scriptSrc = script.getAttribute('src') || script.textContent?.substring(0, 50) || 'unknown';
+              const scriptSrc = script.getAttribute('src');
               console.log(`Loading script ${index + 1}:`, scriptSrc);
               
-              const newScript = script.cloneNode(true);
+              const newScript = document.createElement('script');
+              newScript.type = 'module';
+              newScript.src = scriptSrc;
+              
+              if (script.hasAttribute('crossorigin')) {
+                newScript.crossOrigin = script.getAttribute('crossorigin') || 'anonymous';
+              }
+              
               newScript.onload = () => {
                 console.log(`Script ${index + 1} loaded successfully:`, scriptSrc);
+                // Check if Phaser is available after a short delay
+                setTimeout(() => {
+                  if (typeof Phaser !== 'undefined') {
+                    console.log('Phaser is now available!');
+                  } else {
+                    console.warn('Script loaded but Phaser is still not available');
+                  }
+                }, 500);
               };
+              
               newScript.onerror = (e) => {
                 console.error(`Failed to load script ${index + 1}:`, scriptSrc, e);
                 document.getElementById('app').innerHTML = `
@@ -67,24 +115,32 @@
                     <h2>Failed to load game script</h2>
                     <p>Script: ${scriptSrc}</p>
                     <p style="font-size: 14px; color: #888; margin-top: 20px;">
-                      Check browser console for details.
+                      Check browser console and Network tab for details.
                     </p>
                   </div>
                 `;
               };
               
-              // Also check for crossorigin attribute
-              if (script.hasAttribute('crossorigin')) {
-                newScript.setAttribute('crossorigin', script.getAttribute('crossorigin') || 'anonymous');
-              }
-              
               document.head.appendChild(newScript);
             });
+            
+            if (scripts.length === 0) {
+              throw new Error('No scripts found in built index.html');
+            }
             
             // Wait a bit and check if game initialized
             setTimeout(() => {
               const app = document.getElementById('app');
-              if (app && app.children.length === 0 && app.textContent === 'Initializing...') {
+              const hasContent = app && (app.children.length > 0 || (app.textContent && app.textContent !== 'Initializing...'));
+              
+              console.log('Checking game initialization...', {
+                hasContent,
+                childrenCount: app?.children.length || 0,
+                textContent: app?.textContent?.substring(0, 50) || 'empty',
+                phaserAvailable: typeof Phaser !== 'undefined'
+              });
+              
+              if (!hasContent && (app?.textContent === 'Initializing...' || !app?.textContent)) {
                 console.warn('Game may not have initialized. Checking for errors...');
                 // Check if Phaser is loaded
                 if (typeof Phaser === 'undefined') {
@@ -93,7 +149,8 @@
                       <h2>Game not initializing</h2>
                       <p>Phaser library not loaded. Check console for errors.</p>
                       <p style="font-size: 14px; color: #888; margin-top: 20px;">
-                        Script was loaded but game didn't start.
+                        Script was loaded but game didn't start.<br/>
+                        Check Network tab to see if script file loaded successfully.
                       </p>
                     </div>
                   `;
