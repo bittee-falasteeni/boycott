@@ -7,9 +7,65 @@
     <!-- CSP removed - Neocities sets its own CSP headers that override meta tags -->
     <!-- Audio files are hosted on GitHub and loaded via jsDelivr CDN -->
     <title>Bittee – Falasteeni</title>
-    <!-- Vite will replace this with the built file during build -->
-    <!-- For development, this imports the source TypeScript file -->
-    <script type="module" src="/src/main.ts"></script>
+    <!-- Production: Load built file. Development: Load source file -->
+    <script type="module">
+      // Detect if we're in production (GitHub Pages) or development
+      const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
+      
+      if (isProduction) {
+        // In production, try to find and load the built file
+        // The built file is in /boycott/assets/index-*.js
+        // We'll try to fetch the index.html from /boycott/ to get the correct file name
+        fetch('/boycott/index.html')
+          .then(response => response.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const script = doc.querySelector('script[type="module"]');
+            if (script && script.src) {
+              // Load the built file
+              const builtScript = document.createElement('script');
+              builtScript.type = 'module';
+              builtScript.crossOrigin = 'anonymous';
+              builtScript.src = script.src;
+              document.head.appendChild(builtScript);
+              
+              // Also load the CSS
+              const link = doc.querySelector('link[rel="stylesheet"]');
+              if (link && link.href) {
+                const builtLink = document.createElement('link');
+                builtLink.rel = 'stylesheet';
+                builtLink.crossOrigin = 'anonymous';
+                builtLink.href = link.href;
+                document.head.appendChild(builtLink);
+              }
+            } else {
+              // Fallback: try common build file pattern
+              console.error('Could not find built file, trying fallback...');
+              const fallbackScript = document.createElement('script');
+              fallbackScript.type = 'module';
+              fallbackScript.crossOrigin = 'anonymous';
+              fallbackScript.src = '/boycott/assets/index.js';
+              document.head.appendChild(fallbackScript);
+            }
+          })
+          .catch(error => {
+            console.error('Failed to load built file:', error);
+            // Fallback: try to load from /boycott/assets/
+            const fallbackScript = document.createElement('script');
+            fallbackScript.type = 'module';
+            fallbackScript.crossOrigin = 'anonymous';
+            fallbackScript.src = '/boycott/assets/index.js';
+            document.head.appendChild(fallbackScript);
+          });
+      } else {
+        // Development: load source file
+        const devScript = document.createElement('script');
+        devScript.type = 'module';
+        devScript.src = '/src/main.ts';
+        document.head.appendChild(devScript);
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>
