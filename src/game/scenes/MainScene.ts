@@ -1380,6 +1380,13 @@ export class MainScene extends Phaser.Scene {
     // Store velocities at the END of update for next frame's comparison
     this.storeBallVelocities()
     
+    // Periodic memory cleanup for mobile (every 5 seconds)
+    if (!this.lastMemoryCleanup || time - this.lastMemoryCleanup > 5000) {
+      this.lastMemoryCleanup = time
+      // Clean up inactive/destroyed objects
+      this.cleanupInactiveObjects()
+    }
+    
     // CRITICAL: Lock position again at the END of update to catch any late updates
     // This ensures position stays locked even if something runs after the initial lock
     if (this.isTransitioning && this.justExitedCrouch && this.transitionTargetY > 0) {
@@ -5022,6 +5029,44 @@ export class MainScene extends Phaser.Scene {
     this.isAiming = false
   }
 
+  private cleanupInactiveObjects(): void {
+    // Clean up inactive bullets
+    this.bullets.children.entries.forEach((bulletObj) => {
+      const bullet = bulletObj as Phaser.Physics.Arcade.Image
+      if (bullet && !bullet.active) {
+        bullet.destroy()
+      }
+    })
+    
+    // Clean up inactive balls
+    this.balls.children.entries.forEach((ballObj) => {
+      const ball = ballObj as Phaser.Physics.Arcade.Image
+      if (ball && !ball.active) {
+        ball.destroy()
+      }
+    })
+    
+    // Clean up inactive power-ups
+    if (this.powerUps) {
+      this.powerUps.children.entries.forEach((powerUpObj) => {
+        const powerUp = powerUpObj as Phaser.Physics.Arcade.Image
+        if (powerUp && !powerUp.active) {
+          powerUp.destroy()
+        }
+      })
+    }
+    
+    // Clean up inactive enemies
+    if (this.enemies) {
+      this.enemies.children.entries.forEach((enemyObj) => {
+        const enemy = enemyObj as Phaser.Physics.Arcade.Sprite
+        if (enemy && !enemy.active) {
+          enemy.destroy()
+        }
+      })
+    }
+  }
+
   private cleanupBullets(): void {
     this.bullets.getChildren().forEach((child) => {
       const bullet = child as Phaser.Physics.Arcade.Image
@@ -6165,13 +6210,15 @@ export class MainScene extends Phaser.Scene {
   }
 
   private spawnLevelWave(levelIndex: number): void {
-    // Don't spawn balls during boss level
-    if (this.isBossLevel) {
-      return
-    }
-    
-    const wave = LEVEL_BALL_WAVES[levelIndex] ?? LEVEL_BALL_WAVES[LEVEL_BALL_WAVES.length - 1]
-    const width = this.scale.width
+    // Wrap in try-catch to prevent crashes on mobile
+    try {
+      // Don't spawn balls during boss level
+      if (this.isBossLevel) {
+        return
+      }
+      
+      const wave = LEVEL_BALL_WAVES[levelIndex] ?? LEVEL_BALL_WAVES[LEVEL_BALL_WAVES.length - 1]
+      const width = this.scale.width
     
     // Get brand assignments for this level
     const brandAssignments = LEVEL_BRAND_ASSIGNMENTS[levelIndex] ?? LEVEL_BRAND_ASSIGNMENTS[0]
@@ -6209,6 +6256,10 @@ export class MainScene extends Phaser.Scene {
       const x = Phaser.Math.Between(Math.round(width * 0.25), Math.round(width * 0.75))
       this.spawnBall(x, spawnY, entry.size, Phaser.Math.RND.pick([-1, 1]), textureKey)
     })
+    } catch (error) {
+      console.error('Error in spawnLevelWave:', error)
+      // Continue - don't crash the game
+    }
   }
 
   private updateHud(): void {
@@ -7682,130 +7733,221 @@ export class MainScene extends Phaser.Scene {
   }
 
   private startLevelFromSelection(levelIndex: number, isBossLevel: boolean): void {
-    // Close level selection first
-    this.closeLevelSelection()
-    
-    // Clean up boss level entities if switching away from boss level
-    if (this.isBossLevel && !isBossLevel) {
-      this.cleanupBossLevel()
-    }
-    
-    // Update all borders
-    this.levelButtons.forEach((btn) => {
-      const btnBorder = btn.getData('borderGraphics') as Phaser.GameObjects.Graphics
-      const btnIndex = btn.getData('levelIndex') as number
-      const btnBorderRadius = btn.getData('borderRadius') as number
-      const btnLevelSize = btn.getData('levelSize') as number
-      if (btnBorder && btnIndex !== undefined && btnBorderRadius !== undefined && btnLevelSize !== undefined) {
-        btnBorder.clear()
-        const isSelected = btnIndex === levelIndex
-        const btnBorderColor = isSelected ? 0xe0d5b6 : 0x2f3b32
-        btnBorder.lineStyle(4, btnBorderColor, 1)
-        btnBorder.strokeRoundedRect(-btnLevelSize / 2, -btnLevelSize / 2, btnLevelSize, btnLevelSize, btnBorderRadius)
-        const isCurrentCity = btnIndex === this.currentLevelIndex
-        btnBorder.setDepth(isCurrentCity ? 310 : 300)
-      }
-    })
-    
-    // Handle boss level or regular level
-    if (isBossLevel) {
-      // Don't change currentLevelIndex - just start boss level
-    } else {
-      this.applyLevel(levelIndex)
-    }
-    
-    // Reset game state
-    this.lives = 3
-    this.score = 0
-    this.updateHud()
-    
-    // Reset Bittee
-    const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
-    this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
-    this.player.setVelocity(0, 0)
-    if (playerBody) {
-      playerBody.setVelocity(0, 0)
-      playerBody.setGravityY(this.normalGravityY)
-      playerBody.setAcceleration(0, 0)
-    }
-    this.player.setScale(this.basePlayerScale, this.basePlayerScale)
-    this.facing = 'right'
-    this.isThrowing = false
-    this.isTaunting = false
-    this.isJumping = false
-    this.isCrouching = false
-    this.isAirCrouching = false
-    this.justExitedCrouch = false
-    this.isInvulnerable = false
-    if (this.invulnerabilityTimer) {
-      this.invulnerabilityTimer.remove(false)
-      this.invulnerabilityTimer = undefined
-    }
-    this.player.setAlpha(1)
-    this.lastFired = 0
-    this.player.anims.stop()
-    this.setIdlePose(true)
-    this.setupPlayerCollider(0)
-    if (playerBody) {
-      playerBody.updateFromGameObject()
-    }
-    
-    // Clear all balls and bullets
-    this.balls.clear(true, true)
-    this.bullets.clear(true, true)
-    
-    // Reset throw button
-    if (this.throwButton) {
-      const rockIcon = this.throwButton.getData('rockIcon') as Phaser.GameObjects.Image
-      const infinityText = this.throwButton.getData('infinityText') as Phaser.GameObjects.Text
-      if (rockIcon) {
-        rockIcon.setScale(0.25)
-        rockIcon.setAlpha(1)
-      }
-      if (infinityText) {
-        infinityText.setScale(1)
-        infinityText.setAlpha(1)
-      }
-    }
-    
-    // Resume physics and time
-    this.physics.world.resume()
-    this.tweens.resumeAll()
-    this.time.timeScale = 1
-    this.isGameActive = true
-    
-    // Handle boss level or regular level
-    if (isBossLevel) {
-      // Stop background music completely before starting boss level
+    // Wrap in try-catch to prevent crashes on mobile
+    try {
+      // Close level selection first
+      this.closeLevelSelection()
+      
+      // CRITICAL: Comprehensive cleanup before loading new level to prevent memory leaks
+      // Stop all audio to prevent memory buildup
       this.stopBackgroundMusic()
-      // Force stop and pause all background music tracks
-      if (this.backgroundMusic1) {
-        if (this.backgroundMusic1.isPlaying) {
-          this.backgroundMusic1.stop()
-        }
-        if (!this.backgroundMusic1.isPaused) {
-          this.backgroundMusic1.pause()
-        }
-        // Remove ALL event listeners to prevent auto-playing
-        this.backgroundMusic1.removeAllListeners('complete')
+      if (this.settingsMusic && this.settingsMusic.isPlaying) {
+        this.settingsMusic.stop()
       }
-      if (this.backgroundMusic2) {
-        if (this.backgroundMusic2.isPlaying) {
-          this.backgroundMusic2.stop()
-        }
-        if (!this.backgroundMusic2.isPaused) {
-          this.backgroundMusic2.pause()
-        }
-        // Remove ALL event listeners to prevent auto-playing
-        this.backgroundMusic2.removeAllListeners('complete')
+      if (this.heartbeatSound && this.heartbeatSound.isPlaying) {
+        this.heartbeatSound.stop()
       }
-      this.startBossLevel()
-    } else {
-      this.spawnLevelWave(levelIndex)
+      // Stop all time sound instances
+      this.timeSoundInstances.forEach(instance => {
+        if (instance && instance.isPlaying) {
+          instance.stop()
+        }
+      })
+      this.timeSoundInstances = []
+      
+      // Clean up all tweens and timers
+      this.tweens.killAll()
+      if (this.slowMotionTimer) {
+        this.slowMotionTimer.remove(false)
+        this.slowMotionTimer = undefined
+      }
+      if (this.shieldTimer) {
+        this.shieldTimer.remove(false)
+        this.shieldTimer = undefined
+      }
+      if (this.jetShakeTimer) {
+        this.jetShakeTimer.remove(false)
+        this.jetShakeTimer = undefined
+      }
+      if (this.invulnerabilityTimer) {
+        this.invulnerabilityTimer.remove(false)
+        this.invulnerabilityTimer = undefined
+      }
+      
+      // Clean up power-up indicators
+      this.powerUpIndicators.forEach((indicator) => {
+        if (indicator.tween) {
+          indicator.tween.stop()
+        }
+        if (indicator.text && indicator.text.scene) {
+          indicator.text.destroy()
+        }
+        if (indicator.progressBar && indicator.progressBar.scene) {
+          indicator.progressBar.destroy()
+        }
+        if (indicator.progressBarBg && indicator.progressBarBg.scene) {
+          indicator.progressBarBg.destroy()
+        }
+      })
+      this.powerUpIndicators.clear()
+      
+      // Clean up aiming triangles and hit indicators
+      this.aimingTriangles.forEach((triangle) => {
+        if (triangle && triangle.scene) {
+          triangle.destroy()
+        }
+      })
+      this.aimingTriangles.clear()
+      this.projectedHitIndicators.forEach((indicator) => {
+        if (indicator && indicator.scene) {
+          indicator.destroy()
+        }
+      })
+      this.projectedHitIndicators.clear()
+      this.bulletTargetMap.clear()
+      
+      // Clean up boss level entities if switching away from boss level
+      if (this.isBossLevel && !isBossLevel) {
+        this.cleanupBossLevel()
+      }
+      
+      // Update all borders
+      this.levelButtons.forEach((btn) => {
+        const btnBorder = btn.getData('borderGraphics') as Phaser.GameObjects.Graphics
+        const btnIndex = btn.getData('levelIndex') as number
+        const btnBorderRadius = btn.getData('borderRadius') as number
+        const btnLevelSize = btn.getData('levelSize') as number
+        if (btnBorder && btnIndex !== undefined && btnBorderRadius !== undefined && btnLevelSize !== undefined) {
+          btnBorder.clear()
+          const isSelected = btnIndex === levelIndex
+          const btnBorderColor = isSelected ? 0xe0d5b6 : 0x2f3b32
+          btnBorder.lineStyle(4, btnBorderColor, 1)
+          btnBorder.strokeRoundedRect(-btnLevelSize / 2, -btnLevelSize / 2, btnLevelSize, btnLevelSize, btnBorderRadius)
+          const isCurrentCity = btnIndex === this.currentLevelIndex
+          btnBorder.setDepth(isCurrentCity ? 310 : 300)
+        }
+      })
+      
+      // Handle boss level or regular level
+      if (isBossLevel) {
+        // Don't change currentLevelIndex - just start boss level
+      } else {
+        this.applyLevel(levelIndex)
+      }
+      
+      // Reset game state
+      this.lives = 3
+      this.score = 0
+      this.updateHud()
+      
+      // Reset Bittee
+      const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
+      this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+      this.player.setVelocity(0, 0)
+      if (playerBody) {
+        playerBody.setVelocity(0, 0)
+        playerBody.setGravityY(this.normalGravityY)
+        playerBody.setAcceleration(0, 0)
+      }
+      this.player.setScale(this.basePlayerScale, this.basePlayerScale)
+      this.facing = 'right'
+      this.isThrowing = false
+      this.isTaunting = false
+      this.isJumping = false
+      this.isCrouching = false
+      this.isAirCrouching = false
+      this.justExitedCrouch = false
+      this.isInvulnerable = false
+      this.isSlowMotion = false
+      if (this.shieldBubble && this.shieldBubble.scene) {
+        this.shieldBubble.destroy()
+        this.shieldBubble = undefined
+      }
+      this.player.setAlpha(1)
+      this.lastFired = 0
+      this.player.anims.stop()
+      this.setIdlePose(true)
+      this.setupPlayerCollider(0)
+      if (playerBody) {
+        playerBody.updateFromGameObject()
+      }
+      
+      // Clear all balls and bullets
+      this.balls.clear(true, true)
+      this.bullets.clear(true, true)
+      
+      // Reset throw button
+      if (this.throwButton) {
+        const rockIcon = this.throwButton.getData('rockIcon') as Phaser.GameObjects.Image
+        const infinityText = this.throwButton.getData('infinityText') as Phaser.GameObjects.Text
+        if (rockIcon) {
+          rockIcon.setScale(0.25)
+          rockIcon.setAlpha(1)
+        }
+        if (infinityText) {
+          infinityText.setScale(1)
+          infinityText.setAlpha(1)
+        }
+      }
+      
+      // Resume physics and time
+      this.physics.world.resume()
+      this.tweens.resumeAll()
+      this.time.timeScale = 1
+      this.isGameActive = true
+      
+      // Handle boss level or regular level
+      if (isBossLevel) {
+        // Stop background music completely before starting boss level
+        this.stopBackgroundMusic()
+        // Force stop and pause all background music tracks
+        if (this.backgroundMusic1) {
+          if (this.backgroundMusic1.isPlaying) {
+            this.backgroundMusic1.stop()
+          }
+          if (!this.backgroundMusic1.isPaused) {
+            this.backgroundMusic1.pause()
+          }
+          // Remove ALL event listeners to prevent auto-playing
+          this.backgroundMusic1.removeAllListeners('complete')
+        }
+        if (this.backgroundMusic2) {
+          if (this.backgroundMusic2.isPlaying) {
+            this.backgroundMusic2.stop()
+          }
+          if (!this.backgroundMusic2.isPaused) {
+            this.backgroundMusic2.pause()
+          }
+          // Remove ALL event listeners to prevent auto-playing
+          this.backgroundMusic2.removeAllListeners('complete')
+        }
+        this.startBossLevel()
+      } else {
+        this.spawnLevelWave(levelIndex)
+      }
+      
+      // Close settings panel
+      this.closeSettingsPanel()
+      
+      // Force garbage collection hint for mobile (if available)
+      if (typeof window !== 'undefined' && (window as any).gc) {
+        try {
+          (window as any).gc()
+        } catch (e) {
+          // Ignore if gc is not available
+        }
+      }
+    } catch (error) {
+      console.error('Error in startLevelFromSelection:', error)
+      // Try to recover by at least clearing game objects
+      try {
+        this.balls.clear(true, true)
+        this.bullets.clear(true, true)
+        this.isGameActive = true
+      } catch (recoveryError) {
+        console.error('Recovery failed:', recoveryError)
+      }
     }
-    
-    // Close settings panel
-    this.closeSettingsPanel()
   }
 
   private updateStartModalVolumeOption(): void {
