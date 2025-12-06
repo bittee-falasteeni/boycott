@@ -1099,20 +1099,25 @@ export class MainScene extends Phaser.Scene {
         ball.setData('peakY', undefined)
         
         // FIX: If slow motion is active, ensure ball has slow motion flag set and apply it
-        if (this.isSlowMotion && !ball.getData('slowMotionApplied')) {
-          // Store original values BEFORE applying slow motion
-          const originalVelX = currentVelX
-          const originalVelY = -bounceVel
-          const originalGravity = body.gravity.y || 240
+        // This must happen on EVERY bounce, not just first bounce
+        if (this.isSlowMotion) {
+          if (!ball.getData('slowMotionApplied')) {
+            // First time applying slow motion to this ball - store original values
+            const originalVelX = currentVelX
+            const originalVelY = -bounceVel
+            const originalGravity = body.gravity.y || 240
+            
+            ball.setData('slowMotionApplied', true)
+            ball.setData('originalVelX', originalVelX)
+            ball.setData('originalVelY', originalVelY)
+            ball.setData('originalGravity', originalGravity)
+          }
           
-          ball.setData('slowMotionApplied', true)
-          ball.setData('originalVelX', originalVelX)
-          ball.setData('originalVelY', originalVelY)
-          ball.setData('originalGravity', originalGravity)
-          
-          // Apply slow motion factor to the bounce velocity
+          // Always apply slow motion factor to bounce velocity
           const slowMotionFactor = 0.3
-          body.setVelocity(originalVelX * slowMotionFactor, bounceVelY)
+          body.setVelocity(currentVelX * slowMotionFactor, bounceVelY)
+          // Ensure gravity is also slowed
+          const originalGravity = ball.getData('originalGravity') as number || 240
           body.setGravityY(originalGravity * slowMotionFactor)
         }
       } else if (isTouchingGround && isMovingDown) {
@@ -1123,13 +1128,18 @@ export class MainScene extends Phaser.Scene {
           // Scale X velocity too if slow motion is active
           const scaledVelX = currentVelX * slowMotionFactor
           
-          // FIX: If slow motion is active and ball doesn't have flag, apply it now
-          if (this.isSlowMotion && !ball.getData('slowMotionApplied')) {
-            // Store original values
-            ball.setData('originalVelX', currentVelX)
-            ball.setData('originalVelY', -bounceVel)
-            ball.setData('originalGravity', body.gravity.y || 240)
-            ball.setData('slowMotionApplied', true)
+          // FIX: If slow motion is active, ensure it's applied
+          if (this.isSlowMotion) {
+            if (!ball.getData('slowMotionApplied')) {
+              // First time - store original values
+              ball.setData('originalVelX', currentVelX)
+              ball.setData('originalVelY', -bounceVel)
+              ball.setData('originalGravity', body.gravity.y || 240)
+              ball.setData('slowMotionApplied', true)
+            }
+            // Always apply slow motion to gravity
+            const originalGravity = ball.getData('originalGravity') as number || 240
+            body.setGravityY(originalGravity * slowMotionFactor)
           }
           
           body.setVelocity(scaledVelX, bounceVelY)
@@ -1389,10 +1399,12 @@ export class MainScene extends Phaser.Scene {
     if (this.isAiming) {
       this.updateAimingTriangle()
     } else {
-      // Make sure triangles are removed when not aiming
+      // FIX: Make sure triangles are removed when not aiming
       if (this.aimingTriangles.size > 0) {
         this.removeAimingTriangle()
       }
+      // FIX: Also aggressively clean up any orphaned triangles, especially around ground level
+      this.cleanupOrphanedTriangles()
     }
     this.updateHeartbeat()
     // Check ball bounces AFTER physics step but before storing velocities
@@ -8116,9 +8128,30 @@ export class MainScene extends Phaser.Scene {
       this.bossMusic.stop()
     }
 
-    // Start background music when game starts (but not during boss level)
+    // FIX: Start background music when game starts (but not during boss level)
+    // Only start if not respawning OR if no music is currently playing
     if (!this.isBossLevel) {
-      this.startBackgroundMusic()
+      // Check if music is already playing before starting
+      const track1Playing = this.backgroundMusic1 && (this.backgroundMusic1.isPlaying || !this.backgroundMusic1.isPaused)
+      const track2Playing = this.backgroundMusic2 && (this.backgroundMusic2.isPlaying || !this.backgroundMusic2.isPaused)
+      
+      if (!track1Playing && !track2Playing) {
+        // No music playing - start it
+        this.startBackgroundMusic()
+      } else {
+        // Music is playing - just ensure it continues (don't restart)
+        if (track2Playing) {
+          this.currentMusicTrack = 2
+          if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+            this.backgroundMusic2.resume()
+          }
+        } else if (track1Playing) {
+          this.currentMusicTrack = 1
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+            this.backgroundMusic1.resume()
+          }
+        }
+      }
     }
 
     // If respawning, keep current level; otherwise reset everything
@@ -10312,6 +10345,55 @@ export class MainScene extends Phaser.Scene {
         ball.setData('projectedHitIndicator', undefined)
       }
     }
+  }
+
+  private cleanupOrphanedTriangles(): void {
+    // FIX: Aggressively clean up orphaned triangles, especially around ground/head level
+    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerHeadY = playerY - this.player.displayHeight
+    
+    this.children.list.forEach((child) => {
+      if (child instanceof Phaser.GameObjects.Text) {
+        const text = child as Phaser.GameObjects.Text
+        if (text.text && text.text.includes('\u25BC')) {
+          const textY = text.y
+          
+          // Check if it's in our Maps
+          let foundInMap = false
+          this.aimingTriangles.forEach((tri) => {
+            if (tri === text) foundInMap = true
+          })
+          this.projectedHitIndicators.forEach((ind) => {
+            if (ind === text) foundInMap = true
+          })
+          
+          // FIX: If not in Maps OR if it's in the problematic zone (ground to head level)
+          const inProblemZone = textY >= playerHeadY && textY <= playerY + 50
+          if ((!foundInMap || inProblemZone) && text.scene && text.active) {
+            // Double-check it's really orphaned by checking if any ball is near it
+            let ballNearby = false
+            this.balls.children.entries.forEach((ballObj) => {
+              const ball = ballObj as Phaser.Physics.Arcade.Image
+              if (ball && ball.active && ball.scene) {
+                const distance = Phaser.Math.Distance.Between(text.x, text.y, ball.x, ball.y)
+                if (distance < 50) {
+                  ballNearby = true
+                }
+              }
+            })
+            
+            // If no ball is nearby, it's definitely orphaned - destroy it
+            if (!ballNearby) {
+              try {
+                text.destroy()
+              } catch (e) {
+                // Ignore errors
+              }
+            }
+          }
+        }
+      }
+    })
   }
 
   private removeAimingTriangleForBall(ball: Phaser.Physics.Arcade.Image): void {
