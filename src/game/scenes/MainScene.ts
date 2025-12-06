@@ -3035,17 +3035,9 @@ export class MainScene extends Phaser.Scene {
         displayHeight = maxDisplaySize
       }
       
-      // FIX: Brand-specific size multipliers for cities modal grid
-      const brandMultipliers: Record<string, number> = {
-        'brand-bk': 1.4,  // Burger King - too small, make larger
-        'brand-microsoft': 1.25,  // Microsoft - make larger
-        'brand-puma': 1.25,  // Puma - make larger
-        'brand-disneyplus': 1.25,  // Disney+ - make larger
-      }
-      
-      const multiplier = brandMultipliers[brandKey] || 1.0
-      const adjustedWidth = displayWidth * multiplier
-      const adjustedHeight = displayHeight * multiplier
+      // No brand-specific multipliers - all brands fit the same way
+      const adjustedWidth = displayWidth
+      const adjustedHeight = displayHeight
       
       // Ensure we don't exceed the grid cell size (leave 5% padding)
       const maxSize = brandSize * 0.95
@@ -6139,17 +6131,8 @@ export class MainScene extends Phaser.Scene {
               // Scale brand image to fit bubble consistently - use 70% of bubble size
               const brandDisplaySize = bubbleSize * 0.7
               
-              // FIX: Brand-specific size multipliers for better visibility in balls
-              const brandMultipliers: Record<string, number> = {
-                'brand-bk': 1.4,  // Burger King - too small, make larger
-                'brand-microsoft': 1.25,  // Microsoft - make larger
-                'brand-puma': 1.25,  // Puma - make larger
-                'brand-disneyplus': 1.25,  // Disney+ - make larger
-              }
-              
-              const brandKey = this.getBrandKey(baseKey)
-              const multiplier = brandMultipliers[brandKey] || 1.0
-              const adjustedDisplaySize = brandDisplaySize * multiplier
+              // No brand-specific multipliers - all brands fit the same way
+              const adjustedDisplaySize = brandDisplaySize
               
               const brandAspectRatio = img.width / img.height
               let brandWidth = adjustedDisplaySize
@@ -8440,18 +8423,8 @@ export class MainScene extends Phaser.Scene {
     // This prevents different brand PNGs (which may have different dimensions) from displaying at different sizes
     const sourceSize = 256  // Fixed base size - all brands normalized to this
     
-    // FIX: Brand-specific size multipliers for better visibility
-    const brandMultipliers: Record<string, number> = {
-      'brand-bk': 1.4,  // Burger King - too small, make larger
-      'brand-microsoft': 1.25,  // Microsoft - make larger
-      'brand-puma': 1.25,  // Puma - make larger
-      'brand-disneyplus': 1.25,  // Disney+ - make larger
-    }
-    
-    // Get brand key from texture key (e.g., "ball-large-bk" -> "brand-bk")
-    const brandKey = this.getBrandKey(textureKey)
-    const multiplier = brandMultipliers[brandKey] || 1.0
-    return sourceSize * scale * multiplier
+    // No brand-specific multipliers - all brands fit the same way
+    return sourceSize * scale
   }
 
   private tryTaunt(): void {
