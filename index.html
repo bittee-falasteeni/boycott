@@ -42,9 +42,22 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const scripts = doc.querySelectorAll('script[type="module"]');
-            const links = doc.querySelectorAll('link[rel="stylesheet"]');
+            // Try multiple selectors for stylesheets
+            const links = doc.querySelectorAll('link[rel="stylesheet"], link[rel*="stylesheet"]');
             
             console.log(`Found ${scripts.length} scripts and ${links.length} stylesheets`);
+            
+            // Also check all link tags
+            const allLinks = doc.querySelectorAll('link');
+            console.log(`Total link tags found: ${allLinks.length}`);
+            allLinks.forEach((link, i) => {
+              console.log(`Link ${i + 1}:`, {
+                href: link.getAttribute('href'),
+                rel: link.getAttribute('rel'),
+                crossorigin: link.getAttribute('crossorigin'),
+                type: link.getAttribute('type')
+              });
+            });
             
             // Log what we found
             scripts.forEach((script, i) => {
@@ -101,11 +114,22 @@
                 // Check if Phaser is available after a short delay
                 setTimeout(() => {
                   if (typeof Phaser !== 'undefined') {
-                    console.log('Phaser is now available!');
+                    console.log('Phaser is now available on window.Phaser!');
                   } else {
-                    console.warn('Script loaded but Phaser is still not available');
+                    console.warn('Script loaded but Phaser is still not available on window.Phaser');
+                    console.log('This might be normal if Phaser is imported as a module.');
+                    console.log('Checking for runtime errors...');
+                    
+                    // Check if there are any unhandled errors
+                    window.addEventListener('error', (event) => {
+                      console.error('Unhandled error detected:', event.error, event.message, event.filename, event.lineno);
+                    });
+                    
+                    window.addEventListener('unhandledrejection', (event) => {
+                      console.error('Unhandled promise rejection:', event.reason);
+                    });
                   }
-                }, 500);
+                }, 1000);
               };
               
               newScript.onerror = (e) => {
@@ -120,6 +144,32 @@
                   </div>
                 `;
               };
+              
+              // Also catch any errors during script execution
+              window.addEventListener('error', (event) => {
+                if (event.filename && event.filename.includes('index-')) {
+                  console.error('Error in game script:', {
+                    message: event.message,
+                    filename: event.filename,
+                    lineno: event.lineno,
+                    colno: event.colno,
+                    error: event.error
+                  });
+                  
+                  document.getElementById('app').innerHTML = `
+                    <div style="color: white; padding: 20px; text-align: center; font-family: sans-serif; background: #1c231e; min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+                      <h2>Error in game script</h2>
+                      <p style="font-family: monospace; font-size: 12px; color: #ff6b6b; margin: 10px 0;">
+                        ${event.message}
+                      </p>
+                      <p style="font-size: 14px; color: #888; margin-top: 20px;">
+                        File: ${event.filename}<br/>
+                        Line: ${event.lineno}
+                      </p>
+                    </div>
+                  `;
+                }
+              }, true); // Use capture phase to catch errors early
               
               document.head.appendChild(newScript);
             });
