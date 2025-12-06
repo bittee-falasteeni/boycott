@@ -3037,10 +3037,10 @@ export class MainScene extends Phaser.Scene {
       
       // FIX: Brand-specific size multipliers for cities modal grid
       const brandMultipliers: Record<string, number> = {
-        'ball-bk': 1.4,  // Burger King - too small, make larger
-        'ball-microsoft': 1.25,  // Microsoft - make larger
-        'ball-puma': 1.25,  // Puma - make larger
-        'ball-disneyplus': 1.25,  // Disney+ - make larger
+        'brand-bk': 1.4,  // Burger King - too small, make larger
+        'brand-microsoft': 1.25,  // Microsoft - make larger
+        'brand-puma': 1.25,  // Puma - make larger
+        'brand-disneyplus': 1.25,  // Disney+ - make larger
       }
       
       const multiplier = brandMultipliers[brandKey] || 1.0
@@ -6141,10 +6141,10 @@ export class MainScene extends Phaser.Scene {
               
               // FIX: Brand-specific size multipliers for better visibility in balls
               const brandMultipliers: Record<string, number> = {
-                'ball-bk': 1.4,  // Burger King - too small, make larger
-                'ball-microsoft': 1.25,  // Microsoft - make larger
-                'ball-puma': 1.25,  // Puma - make larger
-                'ball-disneyplus': 1.25,  // Disney+ - make larger
+                'brand-bk': 1.4,  // Burger King - too small, make larger
+                'brand-microsoft': 1.25,  // Microsoft - make larger
+                'brand-puma': 1.25,  // Puma - make larger
+                'brand-disneyplus': 1.25,  // Disney+ - make larger
               }
               
               const brandKey = this.getBrandKey(baseKey)
@@ -8442,14 +8442,15 @@ export class MainScene extends Phaser.Scene {
     
     // FIX: Brand-specific size multipliers for better visibility
     const brandMultipliers: Record<string, number> = {
-      'ball-bk': 1.4,  // Burger King - too small, make larger
-      'ball-microsoft': 1.25,  // Microsoft - make larger
-      'ball-puma': 1.25,  // Puma - make larger
-      'ball-disneyplus': 1.25,  // Disney+ - make larger
+      'brand-bk': 1.4,  // Burger King - too small, make larger
+      'brand-microsoft': 1.25,  // Microsoft - make larger
+      'brand-puma': 1.25,  // Puma - make larger
+      'brand-disneyplus': 1.25,  // Disney+ - make larger
     }
     
-    // Check if this texture key has a brand-specific multiplier
-    const multiplier = brandMultipliers[textureKey] || 1.0
+    // Get brand key from texture key (e.g., "ball-large-bk" -> "brand-bk")
+    const brandKey = this.getBrandKey(textureKey)
+    const multiplier = brandMultipliers[brandKey] || 1.0
     return sourceSize * scale * multiplier
   }
 
