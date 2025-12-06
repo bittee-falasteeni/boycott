@@ -10035,8 +10035,8 @@ export class MainScene extends Phaser.Scene {
     // FIX: Remove triangles for balls that are no longer in range, inactive, or destroyed
     // Also check if triangles are stuck (especially around ground level)
     const ballsToRemove: Phaser.Physics.Arcade.Image[] = []
-    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-    const playerHeadY = playerY - this.player.displayHeight  // Approximate head level
+    const playerYForCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerHeadYForCleanup = playerYForCleanup - this.player.displayHeight  // Approximate head level
     
     this.aimingTriangles.forEach((triangle, ball) => {
       // FIX: Check if triangle still exists and is valid
@@ -10050,7 +10050,7 @@ export class MainScene extends Phaser.Scene {
       if (triangle && triangle.scene) {
         const triangleY = triangle.y
         // Check if triangle is in the problematic zone (between ground and head level)
-        if (triangleY >= playerHeadY && triangleY <= playerY + 50) {
+        if (triangleY >= playerHeadYForCleanup && triangleY <= playerYForCleanup + 50) {
           // Check if ball is actually near this triangle
           if (ball && ball.scene) {
             const ballY = ball.y
@@ -10349,8 +10349,8 @@ export class MainScene extends Phaser.Scene {
 
   private cleanupOrphanedTriangles(): void {
     // FIX: Aggressively clean up orphaned triangles, especially around ground/head level
-    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-    const playerHeadY = playerY - this.player.displayHeight
+    const playerYForOrphanCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerHeadYForOrphanCleanup = playerYForOrphanCleanup - this.player.displayHeight
     
     this.children.list.forEach((child) => {
       if (child instanceof Phaser.GameObjects.Text) {
@@ -10368,7 +10368,7 @@ export class MainScene extends Phaser.Scene {
           })
           
           // FIX: If not in Maps OR if it's in the problematic zone (ground to head level)
-          const inProblemZone = textY >= playerHeadY && textY <= playerY + 50
+          const inProblemZone = textY >= playerHeadYForOrphanCleanup && textY <= playerYForOrphanCleanup + 50
           if ((!foundInMap || inProblemZone) && text.scene && text.active) {
             // Double-check it's really orphaned by checking if any ball is near it
             let ballNearby = false
