@@ -79,7 +79,6 @@ const unlockAudioContext = (force: boolean = false) => {
       if (audioContext && audioContext.state === 'suspended') {
         const context = audioContext // Store reference for closure
         context.resume().then(() => {
-          console.log('Audio context unlocked')
           
           // Play a silent sound to "wake up" the audio system on mobile
           // This is required for some mobile browsers

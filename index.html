@@ -3,13 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <!-- Favicon for browser tab (PC) - Multiple formats for maximum compatibility -->
-    <link rel="icon" type="image/svg+xml" href="/boycott/bittee-logo2.svg" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/boycott/bittee-logo2-192.png" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/boycott/bittee-logo2-192.png" />
+    <!-- IMPORTANT: Order matters - put .ico first, then PNG, then SVG -->
+    <link rel="icon" type="image/x-icon" href="/boycott/favicon.ico" />
     <link rel="icon" type="image/png" sizes="16x16" href="/boycott/bittee-logo2-192.png" />
-    <link rel="shortcut icon" type="image/svg+xml" href="/boycott/bittee-logo2.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/boycott/bittee-logo2-192.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/boycott/bittee-logo2-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/boycott/bittee-logo2.svg" />
+    <!-- Legacy support -->
+    <link rel="shortcut icon" type="image/x-icon" href="/boycott/favicon.ico" />
     <link rel="shortcut icon" type="image/png" href="/boycott/bittee-logo2-192.png" />
     <link rel="apple-touch-icon" href="/boycott/bittee-logo2-180.png" />
+    <!-- Favicon debugging -->
+    <script>
+      (function() {
+        // Debug: Log favicon loading attempts
+        console.log('[FAVICON DEBUG] Page loaded, checking favicon links...');
+        const faviconLinks = document.querySelectorAll('link[rel*="icon"]');
+        console.log('[FAVICON DEBUG] Found', faviconLinks.length, 'favicon link(s)');
+        faviconLinks.forEach((link, i) => {
+          const href = link.getAttribute('href');
+          const type = link.getAttribute('type');
+          const sizes = link.getAttribute('sizes');
+          console.log(`[FAVICON DEBUG] Link ${i + 1}: href="${href}", type="${type}", sizes="${sizes}"`);
+          
+          // Try to load the favicon to see if it's accessible
+          const img = new Image();
+          img.onload = () => {
+            console.log(`[FAVICON DEBUG] ✓ Successfully loaded favicon: ${href}`);
+          };
+          img.onerror = () => {
+            console.error(`[FAVICON DEBUG] ✗ Failed to load favicon: ${href}`);
+          };
+          if (href && !href.endsWith('.ico')) {
+            img.src = href;
+          }
+        });
+        
+        // Check if browser is using a cached favicon
+        const favicon = document.querySelector('link[rel*="icon"]');
+        if (favicon) {
+          const originalHref = favicon.getAttribute('href');
+          // Add timestamp to force reload
+          const newHref = originalHref + (originalHref.includes('?') ? '&' : '?') + 'v=' + Date.now();
+          console.log('[FAVICON DEBUG] Attempting to force reload favicon with cache buster:', newHref);
+          
+          // Create new link element with cache buster
+          const newLink = document.createElement('link');
+          newLink.rel = 'icon';
+          newLink.type = favicon.getAttribute('type') || 'image/png';
+          newLink.href = newHref;
+          document.head.appendChild(newLink);
+          
+          // Remove old link after a moment
+          setTimeout(() => {
+            if (favicon.parentNode) {
+              favicon.parentNode.removeChild(favicon);
+            }
+          }, 100);
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bittee – Falasteeni</title>
     

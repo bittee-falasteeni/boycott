@@ -4597,7 +4597,6 @@ export class MainScene extends Phaser.Scene {
         } else {
           // If settings panel is NOT visible, we should still return to settings (not exit to game)
           // This matches the behavior of info and field notes modals
-          console.log('[KEYBOARD] Cities modal closed - settings panel NOT visible')
           
           // If we're already paused for settings, just make the panel visible
           if (this.isPausedForSettings && this.settingsPanel) {
