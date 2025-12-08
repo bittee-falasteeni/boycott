@@ -42,8 +42,8 @@ const config: Phaser.Types.Core.GameConfig = {
   audio: {
     // Force Web Audio API to respect media volume (not ringer volume) on mobile
     // This allows sound to play even when phone is on silent
-    disableWebAudio: false, // Use Web Audio API
-    context: undefined, // Will be set after user interaction
+    disableWebAudio: false, // Use Web Audio API (not HTML5 Audio)
+    // Note: Phaser will create its own audio context, but we'll unlock it on user interaction
   },
 }
 
@@ -63,27 +63,47 @@ window.addEventListener('unhandledrejection', (event) => {
 
 // Unlock audio context on first user interaction (required for mobile browsers)
 let audioContextUnlocked = false
+let audioContext: AudioContext | null = null
+
 const unlockAudioContext = () => {
   if (audioContextUnlocked) return
   
   // Try to unlock Web Audio API context
   try {
     // Create a temporary audio context to unlock it
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext
-    if (AudioContext) {
-      const context = new AudioContext()
-      if (context.state === 'suspended') {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    if (AudioContextClass) {
+      if (!audioContext) {
+        audioContext = new AudioContextClass()
+      }
+      
+      if (audioContext && audioContext.state === 'suspended') {
+        const context = audioContext // Store reference for closure
         context.resume().then(() => {
           console.log('Audio context unlocked')
+          
+          // Play a silent sound to "wake up" the audio system on mobile
+          // This is required for some mobile browsers
+          try {
+            const buffer = context.createBuffer(1, 1, 22050)
+            const source = context.createBufferSource()
+            source.buffer = buffer
+            source.connect(context.destination)
+            source.start(0)
+            source.stop(0.001)
+          } catch (e) {
+            // Silent sound creation failed, but context is unlocked
+          }
+          
           audioContextUnlocked = true
-        }).catch((err) => {
+        }).catch((err: unknown) => {
           console.warn('Failed to unlock audio context:', err)
         })
-      } else {
+      } else if (audioContext) {
         audioContextUnlocked = true
       }
     }
-  } catch (err) {
+  } catch (err: unknown) {
     console.warn('Audio context unlock failed:', err)
   }
   
@@ -94,9 +114,12 @@ const unlockAudioContext = () => {
     if (phaserSound.context && phaserSound.context.state === 'suspended') {
       phaserSound.context.resume().then(() => {
         console.log('Phaser audio context unlocked')
-      }).catch((err: any) => {
+        audioContextUnlocked = true
+      }).catch((err: unknown) => {
         console.warn('Failed to unlock Phaser audio context:', err)
       })
+    } else if (phaserSound.context && phaserSound.context.state === 'running') {
+      audioContextUnlocked = true
     }
   }
 }

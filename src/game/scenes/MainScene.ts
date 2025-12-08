@@ -791,8 +791,17 @@ export class MainScene extends Phaser.Scene {
 
     this.sound.volume = VOLUME_LEVELS[this.settings.volumeIndex].value
 
+    // Unlock audio context early (before initializing sounds)
+    // This is critical for mobile browsers
+    this.unlockAudioContext()
+
     // Initialize audio
     this.initializeAudio()
+    
+    // Unlock again after initialization to ensure it's active
+    setTimeout(() => {
+      this.unlockAudioContext()
+    }, 100)
 
     const keyboard = this.input.keyboard
     if (!keyboard) {
@@ -10563,14 +10572,49 @@ export class MainScene extends Phaser.Scene {
     // This allows sound to play even when phone is on silent (uses media volume, not ringer volume)
     try {
       const soundManager = this.sound as any
+      
+      // Force Phaser to use Web Audio API if it's not already
+      if (soundManager && !soundManager.context) {
+        // Try to create Web Audio context if Phaser hasn't created one yet
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+        if (AudioContextClass) {
+          try {
+            const context = new AudioContextClass()
+            // Play a silent sound to wake up the audio system
+            const buffer = context.createBuffer(1, 1, 22050)
+            const source = context.createBufferSource()
+            source.buffer = buffer
+            source.connect(context.destination)
+            source.start(0)
+            source.stop(0.001)
+          } catch (e) {
+            // Silent sound failed, but continue
+          }
+        }
+      }
+      
       if (soundManager && soundManager.context) {
         const context = soundManager.context
         if (context.state === 'suspended') {
           context.resume().then(() => {
             console.log('Audio context unlocked - sound will work even when phone is on silent')
+            
+            // Play a silent sound to ensure audio system is fully awake
+            try {
+              const buffer = context.createBuffer(1, 1, 22050)
+              const source = context.createBufferSource()
+              source.buffer = buffer
+              source.connect(context.destination)
+              source.start(0)
+              source.stop(0.001)
+            } catch (e) {
+              // Silent sound failed, but context is unlocked
+            }
           }).catch((err: unknown) => {
             console.warn('Failed to unlock audio context:', err)
           })
+        } else if (context.state === 'running') {
+          console.log('Audio context already running')
         }
       }
       
