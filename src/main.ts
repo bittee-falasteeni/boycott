@@ -165,9 +165,6 @@ if (document.readyState === 'complete') {
 const gameWindow = window as any
 gameWindow.unlockAudioContext = unlockAudioContext
 
-// NOTE: Phaser is configured to use HTML5 Audio (disableWebAudio: true)
-// HTML5 Audio uses media volume on iOS (works when phone is silent, like YouTube)
-// We don't need to create a Web Audio API context since we're using HTML5 Audio
 
 // Create game with error handling
 try {

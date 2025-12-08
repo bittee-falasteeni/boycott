@@ -557,7 +557,6 @@ export class MainScene extends Phaser.Scene {
   private startTitleText?: Phaser.GameObjects.Text
   private startTitleBg?: Phaser.GameObjects.Graphics
   private startMessageText?: Phaser.GameObjects.Text
-  private iosAudioKeepAlive?: HTMLAudioElement  // Keep HTML5 audio playing to maintain iOS media volume
   private firstLineText?: Phaser.GameObjects.Text
   private firstLineUnderline?: Phaser.GameObjects.Graphics
   private victoryUnderline?: Phaser.GameObjects.Graphics
@@ -568,6 +567,7 @@ export class MainScene extends Phaser.Scene {
   private destroyedText?: Phaser.GameObjects.Text  // Text showing "Destroyed 1 jet and 3 tanks"
   private startVolumeLabelText?: Phaser.GameObjects.Text
   private startVolumeStatusText?: Phaser.GameObjects.Text
+  private unmuteText?: Phaser.GameObjects.Text
   private totalBubblesDestroyed = 0
   private basePlayerScale = 1
   private startMessageBaseY = 0
@@ -7908,7 +7908,7 @@ export class MainScene extends Phaser.Scene {
       firstLineUnderline.setDepth(42)  // Above text
 
       // "FREE FALASTEEN" text - positioned below message with three line breaks
-      const freeFalasteenY = messageY + 190  // Shifted down more (from 120 to 140)
+      const freeFalasteenY = messageY + 175  // Moved up a bit
       const freeFalasteen = this.add.text(0, freeFalasteenY, 'FREE FALASTEEN', {
         fontSize: '28px',
         fontFamily: 'MontserratBold',
@@ -7998,7 +7998,7 @@ export class MainScene extends Phaser.Scene {
       this.startVolumeStatusText = volumeStatusText
 
       // Create button with shadow background - upward direction
-      const buttonY = panelHeight / 2 - 60
+      const buttonY = panelHeight / 2 - 75  // Moved up a bit
       const buttonPadding = { left: 32, right: 32, top: 12, bottom: 12 }
       const buttonText = 'Yella'
       const buttonFontSize = 36
@@ -8072,7 +8072,17 @@ export class MainScene extends Phaser.Scene {
         buttonShadow.setVisible(true)  // Show shadow
       })
 
-      panel.add([bgGraphics, titleBg, title, message, firstLine, firstLineUnderline, freeFalasteen, scoreLabel, scoreNumber, volumeLabelText, volumeStatusText, buttonShadow, buttonBgGraphics, startButton])
+      // Add gray text under Yella button about unmuting phone
+      const unmuteTextY = buttonY + buttonHeight / 2 + 15  // Below button with spacing
+      const unmuteText = this.add.text(0, unmuteTextY, '(Unmute phone to hear game sound.)', {
+        fontSize: '14px',
+        fontFamily: 'Montserrat',
+        color: '#808080',  // Gray
+        align: 'center',
+      }).setOrigin(0.5, 0.5)
+      unmuteText.setVisible(false)  // Initially hidden, shown when in start mode
+      
+      panel.add([bgGraphics, titleBg, title, message, firstLine, firstLineUnderline, freeFalasteen, scoreLabel, scoreNumber, volumeLabelText, volumeStatusText, buttonShadow, buttonBgGraphics, startButton, unmuteText])
       
       // Store reference to startButton for later use
       panel.setData('startButton', startButton)
@@ -8091,6 +8101,7 @@ export class MainScene extends Phaser.Scene {
       this.scoreNumberText = scoreNumber
       this.startVolumeLabelText = volumeLabelText
       this.startVolumeStatusText = volumeStatusText
+      this.unmuteText = unmuteText
       panel.setData('bgGraphics', bgGraphics)  // Store reference to update background color
     }
 
@@ -8167,9 +8178,10 @@ export class MainScene extends Phaser.Scene {
       this.freeFalasteenText?.setVisible(false)
       this.scoreLabelText?.setVisible(true)
       this.scoreNumberText?.setVisible(true)
-      // Hide volume option in gameOver mode
+      // Hide volume option and unmute text in gameOver mode
       this.startVolumeLabelText?.setVisible(false)
       this.startVolumeStatusText?.setVisible(false)
+      this.unmuteText?.setVisible(false)
       this.scoreNumberText?.setText(`${this.score}`)
       
       // Set number color based on score: dark red if 0, orange if under 10, green if over 10
@@ -8248,9 +8260,10 @@ export class MainScene extends Phaser.Scene {
         // Add gray shadow to the score number (darker)
         this.scoreNumberText.setShadow(2, 2, 'rgba(50, 50, 50, 0.8)', 2)
         
-        // Hide volume option in victory mode
+        // Hide volume option and unmute text in victory mode
         this.startVolumeLabelText?.setVisible(false)
         this.startVolumeStatusText?.setVisible(false)
+        this.unmuteText?.setVisible(false)
 
         // Add text showing destroyed count - use actual count for tanks if in boss level
         const tanksText = this.isBossLevel && this.bossPhase.startsWith('tank') 
@@ -8366,6 +8379,7 @@ export class MainScene extends Phaser.Scene {
       this.updateStartModalVolumeOption()
       this.startVolumeLabelText?.setVisible(true)
       this.startVolumeStatusText?.setVisible(true)
+      this.unmuteText?.setVisible(true)
       this.scoreLabelText?.setVisible(false)
       this.scoreNumberText?.setVisible(false)
       this.victoryUnderline?.setVisible(false)
@@ -8866,34 +8880,44 @@ export class MainScene extends Phaser.Scene {
     // Unlock audio context for mobile (required for sound to work)
     this.unlockAudioContext()
 
-    // FIX: Ensure sound system is not muted
+    // Ensure sound system is not muted
     if (this.sound) {
       this.sound.setMute(false)
     }
     
-    // iOS Safari workaround: Play a real sound to "wake up" the audio system
-    // Even with Web Audio API, iOS can respect ringer switch until a real sound plays
-    // This forces the audio system to use media volume instead of ringer volume
-    // Pass a callback to start game sounds after activation completes
-    this.activateAudioSystem(() => {
-      // After HTML5 audio activates iOS (waits 800ms for iOS to switch to media volume), start game sounds
-      if (!this.isBossLevel && !respawnOnCurrentLevel) {
-        // For new game starts, wait a bit more to ensure iOS has fully switched to media volume
-        // Then start background music - it should now play through media volume
-        this.time.delayedCall(200, () => {
-          console.log('Starting background music after iOS media volume activation...')
-          this.startBackgroundMusic(true)
-        })
-      } else if (!this.isBossLevel && respawnOnCurrentLevel) {
-        // For respawns, music should already be playing, just verify
+    // Start background music when game starts (but not during boss level)
+    if (!this.isBossLevel) {
+      if (respawnOnCurrentLevel) {
+        // Respawn: Resume music if paused, or start if not playing
         const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
         const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
-        if (!track1Playing && !track2Playing) {
-          console.log('Music not playing on respawn - starting now...')
-          this.startBackgroundMusic(false)
+        
+        if (track2Playing) {
+          this.currentMusicTrack = 2
+          if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+            this.backgroundMusic2.resume()
+          }
+        } else if (track1Playing) {
+          this.currentMusicTrack = 1
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+            this.backgroundMusic1.resume()
+          }
+        } else {
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+            this.currentMusicTrack = 1
+            this.backgroundMusic1.resume()
+          } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+            this.currentMusicTrack = 2
+            this.backgroundMusic2.resume()
+          } else {
+            this.startBackgroundMusic(false)
+          }
         }
+      } else {
+        // New game start: Start background music
+        this.startBackgroundMusic(true)
       }
-    })
+    }
 
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
@@ -10712,164 +10736,6 @@ export class MainScene extends Phaser.Scene {
     }
   }
   
-  private activateAudioSystem(onComplete?: () => void): void {
-    // iOS Safari CRITICAL workaround: iOS requires an HTML5 audio/video element to CONTINUOUSLY PLAY
-    // to maintain media volume mode. YouTube works because it keeps HTML5 video playing continuously.
-    // If we remove the HTML5 element, iOS reverts to ringer volume mode.
-    // Solution: Keep a hidden HTML5 audio element playing on loop at very low volume throughout the game.
-    
-    try {
-      // Clean up any existing keep-alive audio
-      if (this.iosAudioKeepAlive) {
-        try {
-          this.iosAudioKeepAlive.pause()
-          this.iosAudioKeepAlive.src = ''
-          this.iosAudioKeepAlive.remove()
-        } catch (e) {
-          // Ignore cleanup errors
-        }
-        this.iosAudioKeepAlive = undefined
-      }
-      
-      // Get the base URL from Phaser config
-      const baseURL = this.load.baseURL || (import.meta.env.DEV ? '/' : '/boycott/')
-      
-      // Use background music file for keep-alive - it's long so loops are less noticeable
-      // Even at very low volume, short sounds are noticeable when looping
-      // Using the actual background music means the loop point is seamless
-      const keepAliveSoundPath = `${baseURL}assets/audio/bittee-mawtini1.webm`
-      
-      // Create HTML5 audio element that will play continuously
-      const html5Audio = document.createElement('audio')
-      html5Audio.src = keepAliveSoundPath
-      // CRITICAL: iOS might ignore muted audio elements, so don't mute
-      // Use very low volume instead (0.001 is barely audible but iOS recognizes it as "playing")
-      html5Audio.volume = 0.001 // Very quiet - should be inaudible in game context
-      html5Audio.loop = true // Loop continuously to maintain media volume mode
-      html5Audio.preload = 'auto'
-      // Don't mute - iOS might not recognize muted audio as "active media"
-      
-      // Handle audio ended event - restart if it stops (shouldn't happen with loop, but safety)
-      html5Audio.addEventListener('ended', () => {
-        if (this.iosAudioKeepAlive === html5Audio) {
-          // Restart if it somehow ended (loop should prevent this)
-          html5Audio.currentTime = 0
-          html5Audio.play().catch(() => {
-            // Ignore play errors
-          })
-        }
-      })
-      
-      // Store reference so we can clean up later if needed
-      this.iosAudioKeepAlive = html5Audio
-      
-      // Play the keep-alive audio - this activates and maintains iOS media volume mode
-      const playPromise = html5Audio.play()
-      if (playPromise !== undefined) {
-        playPromise.then(() => {
-          // Audio started playing - this activates iOS audio system for ALL tabs
-          // AND keeps it active as long as this element is playing
-          console.log('✓ iOS audio system activated with HTML5 audio element (media volume - works for all tabs)')
-          console.log('✓ Keeping HTML5 audio playing continuously to maintain iOS media volume mode')
-          
-          // Wait a moment for iOS to fully activate, then start game sounds
-          setTimeout(() => {
-            // CRITICAL: Play Phaser sounds immediately to "wake up" Phaser's HTML5 Audio system
-            // This ensures iOS recognizes Phaser's audio as "media" and not just our keep-alive
-            // We need to activate both background music AND sound effects
-            try {
-              // Activate background music system
-              if (this.backgroundMusic1) {
-                // Just verify it can play - don't actually play yet (will play in callback)
-                console.log('✓ Background music system ready')
-              }
-              
-              // Activate sound effects by playing multiple test sounds
-              // This ensures all sound effect types are "woken up" for iOS
-              const testSounds = ['settings-sound', 'ball-bounce', 'throw-sound1']
-              let activatedCount = 0
-              
-              testSounds.forEach((soundKey) => {
-                const testSound = this.soundEffects.get(soundKey)
-                if (testSound) {
-                  try {
-                    // Play a very brief sound at very low volume to activate Phaser's sound effects system
-                    const playResult = testSound.play({ volume: 0.0001 })
-                    if (playResult && typeof playResult === 'object' && 'then' in playResult) {
-                      (playResult as Promise<void>).then(() => {
-                        // Stop it immediately after it starts (we just needed it to activate)
-                        setTimeout(() => {
-                          testSound.stop()
-                          activatedCount++
-                          if (activatedCount === testSounds.length) {
-                            console.log('✓ Phaser sound effects system activated (all test sounds played)')
-                          }
-                        }, 50)
-                      }).catch(() => {
-                        // Ignore play errors
-                      })
-                    } else {
-                      // play() returned boolean or nothing - sound might be playing
-                      setTimeout(() => {
-                        testSound.stop()
-                        activatedCount++
-                        if (activatedCount === testSounds.length) {
-                          console.log('✓ Phaser sound effects system activated (all test sounds played)')
-                        }
-                      }, 50)
-                    }
-                  } catch (e) {
-                    // Ignore individual sound errors
-                  }
-                }
-              })
-              
-              if (testSounds.every(key => !this.soundEffects.get(key))) {
-                console.warn('No test sounds found - sound effects may not activate')
-              }
-            } catch (e) {
-              console.warn('Error activating Phaser audio systems:', e)
-            }
-            
-            // Call callback to ensure game sounds start after activation
-            if (onComplete) {
-              console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
-              onComplete()
-            }
-          }, 500) // Shorter delay since we're keeping the audio playing
-        }).catch((err: unknown) => {
-          console.warn('HTML5 audio play failed (may need user interaction):', err)
-          // Clean up on failure
-          try {
-            html5Audio.pause()
-            html5Audio.src = ''
-            html5Audio.remove()
-          } catch (e) {
-            // Ignore cleanup errors
-          }
-          this.iosAudioKeepAlive = undefined
-          // Still call callback even if HTML5 audio failed
-          if (onComplete) {
-            setTimeout(() => onComplete(), 100)
-          }
-        })
-      } else {
-        // Play promise is undefined - call callback immediately
-        if (onComplete) {
-          setTimeout(() => onComplete(), 100)
-        }
-      }
-      
-      // NOTE: Phaser is using Web Audio API (not HTML5 Audio)
-      // The continuous HTML5 audio element activates and maintains iOS media volume mode
-      // Phaser's Web Audio API will now use media volume (works when phone is silent)
-    } catch (err: unknown) {
-      console.warn('Audio activation error:', err)
-      if (onComplete) {
-        setTimeout(() => onComplete(), 100)
-      }
-    }
-  }
 
   private playSound(key: string, volume: number = 1.0, loop: boolean = false): void {
     // Respect volume settings
@@ -10989,12 +10855,11 @@ export class MainScene extends Phaser.Scene {
                 })
               }
               
-              // Re-set up complete event listener after play starts (important for HTML5 Audio)
+              // Set up complete event listener to switch to track 2 when track 1 ends
               if (this.backgroundMusic1) {
                 this.backgroundMusic1.removeAllListeners('complete')
                 this.backgroundMusic1.on('complete', () => {
                   if (!this.isBossLevel && this.isGameActive) {
-                    console.log('Track 1 completed, switching to track 2...')
                     this.playNextMusicTrack()
                   }
                 })
@@ -11066,11 +10931,10 @@ export class MainScene extends Phaser.Scene {
                 console.warn('Track 2 play promise rejected:', e)
               })
             }
-            // Re-set up complete event listener for track 2
+            // Set up complete event listener for track 2
             this.backgroundMusic2.removeAllListeners('complete')
             this.backgroundMusic2.on('complete', () => {
               if (!this.isBossLevel && this.isGameActive) {
-                console.log('Track 2 completed, looping back to track 1...')
                 this.playNextMusicTrack()
               }
             })
@@ -11098,11 +10962,10 @@ export class MainScene extends Phaser.Scene {
                 console.warn('Track 1 play promise rejected:', e)
               })
             }
-            // Re-set up complete event listener for track 1
+            // Set up complete event listener for track 1
             this.backgroundMusic1.removeAllListeners('complete')
             this.backgroundMusic1.on('complete', () => {
               if (!this.isBossLevel && this.isGameActive) {
-                console.log('Track 1 completed, switching to track 2...')
                 this.playNextMusicTrack()
               }
             })
