@@ -10756,15 +10756,25 @@ export class MainScene extends Phaser.Scene {
               const testSound = this.soundEffects.get('settings-sound')
               if (testSound) {
                 // Play a very brief sound at very low volume to activate Phaser's audio system
-                testSound.play({ volume: 0.0001 }).then(() => {
-                  // Stop it immediately after it starts (we just needed it to activate)
+                // Note: Phaser's play() might return Promise or boolean - handle both
+                const playResult = testSound.play({ volume: 0.0001 })
+                if (playResult && typeof playResult === 'object' && 'then' in playResult) {
+                  (playResult as Promise<void>).then(() => {
+                    // Stop it immediately after it starts (we just needed it to activate)
+                    setTimeout(() => {
+                      testSound.stop()
+                      console.log('✓ Phaser audio system activated with test sound')
+                    }, 50)
+                  }).catch(() => {
+                    // Ignore play errors
+                  })
+                } else {
+                  // play() returned boolean or nothing - sound might be playing
                   setTimeout(() => {
                     testSound.stop()
                     console.log('✓ Phaser audio system activated with test sound')
                   }, 50)
-                }).catch(() => {
-                  // Ignore play errors
-                })
+                }
               }
             } catch (e) {
               // Ignore errors
