@@ -10710,16 +10710,18 @@ export class MainScene extends Phaser.Scene {
       // Get the base URL from Phaser config
       const baseURL = this.load.baseURL || (import.meta.env.DEV ? '/' : '/boycott/')
       
-      // Use settings-sound.webm for keep-alive (NOT background music - avoids conflict)
-      // This is a short sound that will loop continuously
-      const keepAliveSoundPath = `${baseURL}assets/audio/settings-sound.webm`
+      // Use background music file for keep-alive - it's long so loops are less noticeable
+      // Even at very low volume, short sounds are noticeable when looping
+      // Using the actual background music means the loop point is seamless
+      const keepAliveSoundPath = `${baseURL}assets/audio/bittee-mawtini1.webm`
       
       // Create HTML5 audio element that will play continuously
       const html5Audio = document.createElement('audio')
       html5Audio.src = keepAliveSoundPath
-      html5Audio.volume = 0.001 // Extremely quiet - inaudible but keeps iOS in media volume mode
+      html5Audio.volume = 0.0001 // Even quieter - should be completely inaudible
       html5Audio.loop = true // Loop continuously to maintain media volume mode
       html5Audio.preload = 'auto'
+      html5Audio.setAttribute('muted', 'true') // Also mute it as extra safety
       
       // Handle audio ended event - restart if it stops (shouldn't happen with loop, but safety)
       html5Audio.addEventListener('ended', () => {
