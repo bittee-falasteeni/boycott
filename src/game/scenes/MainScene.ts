@@ -8829,6 +8829,9 @@ export class MainScene extends Phaser.Scene {
     this.time.timeScale = 1
     this.isGameActive = true  // Set game as active so music can play
 
+    // Unlock audio context for mobile (required for sound to work)
+    this.unlockAudioContext()
+
     // FIX: Ensure sound system is not muted
     if (this.sound) {
       this.sound.setMute(false)
@@ -10552,6 +10555,40 @@ export class MainScene extends Phaser.Scene {
     }
     if (this.cache.audio.exists('heartbeat-fast')) {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
+    }
+  }
+
+  private unlockAudioContext(): void {
+    // Unlock Web Audio API context for mobile browsers
+    // This allows sound to play even when phone is on silent (uses media volume, not ringer volume)
+    try {
+      const soundManager = this.sound as any
+      if (soundManager && soundManager.context) {
+        const context = soundManager.context
+        if (context.state === 'suspended') {
+          context.resume().then(() => {
+            console.log('Audio context unlocked - sound will work even when phone is on silent')
+          }).catch((err) => {
+            console.warn('Failed to unlock audio context:', err)
+          })
+        }
+      }
+      
+      // Also try to unlock any individual sound instances
+      if (this.backgroundMusic1) {
+        const bg1 = this.backgroundMusic1 as any
+        if (bg1.context && bg1.context.state === 'suspended') {
+          bg1.context.resume().catch(() => {})
+        }
+      }
+      if (this.backgroundMusic2) {
+        const bg2 = this.backgroundMusic2 as any
+        if (bg2.context && bg2.context.state === 'suspended') {
+          bg2.context.resume().catch(() => {})
+        }
+      }
+    } catch (err) {
+      console.warn('Audio unlock error:', err)
     }
   }
 
