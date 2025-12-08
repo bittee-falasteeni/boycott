@@ -8851,21 +8851,22 @@ export class MainScene extends Phaser.Scene {
     // This forces the audio system to use media volume instead of ringer volume
     // Pass a callback to start game sounds after activation completes
     this.activateAudioSystem(() => {
-      // After HTML5 audio activates iOS (waits 800ms for iOS to switch to media volume), ensure game sounds are playing
-      if (!this.isBossLevel) {
-        // Wait a bit more to ensure iOS has fully switched to media volume
-        this.time.delayedCall(100, () => {
-          // Double-check music is actually playing
-          const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
-          const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
-          if (!track1Playing && !track2Playing) {
-            // Music didn't start - force it to start now
-            console.log('Forcing background music to start after iOS activation...')
-            this.startBackgroundMusic(true)
-          } else {
-            console.log('Background music is already playing after iOS activation')
-          }
+      // After HTML5 audio activates iOS (waits 800ms for iOS to switch to media volume), start game sounds
+      if (!this.isBossLevel && !respawnOnCurrentLevel) {
+        // For new game starts, wait a bit more to ensure iOS has fully switched to media volume
+        // Then start background music - it should now play through media volume
+        this.time.delayedCall(200, () => {
+          console.log('Starting background music after iOS media volume activation...')
+          this.startBackgroundMusic(true)
         })
+      } else if (!this.isBossLevel && respawnOnCurrentLevel) {
+        // For respawns, music should already be playing, just verify
+        const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
+        const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
+        if (!track1Playing && !track2Playing) {
+          console.log('Music not playing on respawn - starting now...')
+          this.startBackgroundMusic(false)
+        }
       }
     })
 
