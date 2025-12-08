@@ -61,12 +61,14 @@ window.addEventListener('unhandledrejection', (event) => {
   event.preventDefault()
 })
 
-// Unlock audio context on first user interaction (required for mobile browsers)
+// Unlock audio context on user interaction (required for mobile browsers)
+// This needs to work in both regular browser tabs AND when opened as web app
 let audioContextUnlocked = false
 let audioContext: AudioContext | null = null
 
-const unlockAudioContext = () => {
-  if (audioContextUnlocked) return
+const unlockAudioContext = (force: boolean = false) => {
+  // Don't return early if force is true - we want to keep trying
+  if (audioContextUnlocked && !force) return
   
   // Try to unlock Web Audio API context
   try {
@@ -99,7 +101,7 @@ const unlockAudioContext = () => {
         }).catch((err: unknown) => {
           console.warn('Failed to unlock audio context:', err)
         })
-      } else if (audioContext) {
+      } else if (audioContext && audioContext.state === 'running') {
         audioContextUnlocked = true
       }
     }
@@ -107,35 +109,65 @@ const unlockAudioContext = () => {
     console.warn('Audio context unlock failed:', err)
   }
   
-  // Also unlock Phaser's audio system
+  // Also unlock Phaser's audio system - this is the most important part
   const gameWindow = window as any
   if (gameWindow.game && gameWindow.game.sound) {
     const phaserSound = gameWindow.game.sound as any
-    if (phaserSound.context && phaserSound.context.state === 'suspended') {
-      phaserSound.context.resume().then(() => {
-        console.log('Phaser audio context unlocked')
+    if (phaserSound.context) {
+      if (phaserSound.context.state === 'suspended') {
+        phaserSound.context.resume().then(() => {
+          console.log('Phaser audio context unlocked')
+          audioContextUnlocked = true
+        }).catch((err: unknown) => {
+          console.warn('Failed to unlock Phaser audio context:', err)
+        })
+      } else if (phaserSound.context.state === 'running') {
         audioContextUnlocked = true
-      }).catch((err: unknown) => {
-        console.warn('Failed to unlock Phaser audio context:', err)
-      })
-    } else if (phaserSound.context && phaserSound.context.state === 'running') {
-      audioContextUnlocked = true
+      }
     }
   }
 }
 
-// Listen for first user interaction to unlock audio
-const events = ['touchstart', 'touchend', 'mousedown', 'keydown', 'click']
+// Listen for ANY user interaction to unlock audio (not just once - keep trying)
+// This ensures it works even if user interacts before game loads
+const unlockOnInteraction = () => {
+  unlockAudioContext(true) // Force unlock attempt
+}
+
+// Add listeners for all possible user interactions
+const events = ['touchstart', 'touchend', 'mousedown', 'mouseup', 'keydown', 'click', 'pointerdown']
 events.forEach(event => {
-  document.addEventListener(event, unlockAudioContext, { once: true, passive: true })
+  // Use capture phase and don't use once - we want to catch interactions
+  document.addEventListener(event, unlockOnInteraction, { passive: true, capture: true })
+  // Also listen on window
+  window.addEventListener(event, unlockOnInteraction, { passive: true, capture: true })
 })
+
+// Also try to unlock when page becomes visible (handles tab switching)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    unlockAudioContext(true)
+  }
+})
+
+// Try to unlock on page load (in case it's already unlocked in web app mode)
+if (document.readyState === 'complete') {
+  unlockAudioContext(true)
+} else {
+  window.addEventListener('load', () => {
+    unlockAudioContext(true)
+  })
+}
+
+// Make unlockAudioContext globally available so Phaser can call it
+const gameWindow = window as any
+gameWindow.unlockAudioContext = unlockAudioContext
 
 // Create game with error handling
 try {
   const game = new Phaser.Game(config)
   
   // Store game reference globally for audio unlock
-  const gameWindow = window as any
   gameWindow.game = game
   
   // Add game-level error handling
@@ -147,8 +179,40 @@ try {
   game.events.once('ready', () => {
     // Try to unlock audio context after a short delay
     setTimeout(() => {
-      unlockAudioContext()
+      unlockAudioContext(true)
     }, 100)
+    
+    // Also try periodically to ensure it unlocks
+    let attempts = 0
+    const maxAttempts = 10
+    const interval = setInterval(() => {
+      attempts++
+      unlockAudioContext(true)
+      if (audioContextUnlocked || attempts >= maxAttempts) {
+        clearInterval(interval)
+      }
+    }, 200)
+  })
+  
+  // Hook into Phaser's input system to unlock on any game interaction
+  game.events.once('ready', () => {
+    // Wait for scene to be created
+    setTimeout(() => {
+      const scene = game.scene.getScenes()[0]
+      if (scene && scene.input) {
+        // Unlock on any input event
+        scene.input.on('pointerdown', () => {
+          unlockAudioContext(true)
+        })
+        scene.input.on('pointerup', () => {
+          unlockAudioContext(true)
+        })
+        // Also listen for touch events
+        scene.input.on('pointermove', () => {
+          unlockAudioContext(true)
+        })
+      }
+    }, 500)
   })
 } catch (error) {
   console.error('Failed to create Phaser game:', error)

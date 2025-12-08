@@ -10568,6 +10568,12 @@ export class MainScene extends Phaser.Scene {
   }
 
   private unlockAudioContext(): void {
+    // First, call the global unlock function if available
+    const globalUnlock = (window as any).unlockAudioContext
+    if (globalUnlock) {
+      globalUnlock(true) // Force unlock
+    }
+    
     // Unlock Web Audio API context for mobile browsers
     // This allows sound to play even when phone is on silent (uses media volume, not ringer volume)
     try {
