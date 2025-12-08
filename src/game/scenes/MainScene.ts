@@ -10937,6 +10937,18 @@ export class MainScene extends Phaser.Scene {
                   })
                 })
               }
+              
+              // Re-set up complete event listener after play starts (important for HTML5 Audio)
+              if (this.backgroundMusic1) {
+                this.backgroundMusic1.removeAllListeners('complete')
+                this.backgroundMusic1.on('complete', () => {
+                  if (!this.isBossLevel && this.isGameActive) {
+                    console.log('Track 1 completed, switching to track 2...')
+                    this.playNextMusicTrack()
+                  }
+                })
+              }
+              
               console.log('✓ Background music started playing')
             } catch (err: unknown) {
               console.warn('Failed to play background music:', err)
