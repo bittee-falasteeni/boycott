@@ -8849,9 +8849,19 @@ export class MainScene extends Phaser.Scene {
     // iOS Safari workaround: Play a real sound to "wake up" the audio system
     // Even with Web Audio API, iOS can respect ringer switch until a real sound plays
     // This forces the audio system to use media volume instead of ringer volume
-    setTimeout(() => {
-      this.activateAudioSystem()
-    }, 100)
+    // Pass a callback to start game sounds after activation completes
+    this.activateAudioSystem(() => {
+      // After HTML5 audio activates iOS, ensure game sounds are playing
+      if (!this.isBossLevel) {
+        // Double-check music is actually playing
+        const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
+        const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
+        if (!track1Playing && !track2Playing) {
+          // Music didn't start - force it to start now
+          this.startBackgroundMusic(true)
+        }
+      }
+    })
 
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
@@ -10724,7 +10734,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
   
-  private activateAudioSystem(): void {
+  private activateAudioSystem(onComplete?: () => void): void {
     // iOS Safari CRITICAL workaround: iOS requires an HTML5 audio/video element to play
     // before it fully activates audio for ALL tabs. Even with Web Audio API unlocked,
     // iOS stays in "pending" state until a real HTML5 media element plays.
@@ -10748,16 +10758,33 @@ export class MainScene extends Phaser.Scene {
       if (playPromise !== undefined) {
         playPromise.then(() => {
           // Audio started playing - this activates iOS audio system for ALL tabs
+          console.log('✓ iOS audio system activated with HTML5 audio element (media volume - works for all tabs)')
+          
+          // Wait a moment for iOS to fully activate, then clean up and call callback
           setTimeout(() => {
             html5Audio.pause()
             html5Audio.currentTime = 0
             html5Audio.remove() // Clean up
-          }, 100)
-          console.log('✓ iOS audio system activated with HTML5 audio element (media volume - works for all tabs)')
+            
+            // Call callback to ensure game sounds start after activation
+            if (onComplete) {
+              console.log('Starting game sounds after HTML5 audio activation...')
+              onComplete()
+            }
+          }, 200) // Increased delay to ensure iOS fully activates
         }).catch((err: unknown) => {
           console.warn('HTML5 audio play failed (may need user interaction):', err)
           html5Audio.remove()
+          // Still call callback even if HTML5 audio failed
+          if (onComplete) {
+            setTimeout(() => onComplete(), 100)
+          }
         })
+      } else {
+        // Play promise is undefined - call callback immediately
+        if (onComplete) {
+          setTimeout(() => onComplete(), 100)
+        }
       }
       
       // Also try Web Audio API activation as backup
@@ -10847,6 +10874,11 @@ export class MainScene extends Phaser.Scene {
     if (volumeMultiplier === 0) {
       return // Silent mode
     }
+    
+    // Ensure sound system is not muted
+    if (this.sound) {
+      this.sound.setMute(false)
+    }
 
     // FIX: If forceRestart is true, skip the "already playing" check and force a fresh start
     if (!forceRestart) {
@@ -10896,10 +10928,46 @@ export class MainScene extends Phaser.Scene {
         // Small delay to ensure stop completes, then play
         this.time.delayedCall(50, () => {
           if (this.backgroundMusic1) {
-            this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+            try {
+              const playResult = this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+              // play() might return a Promise or boolean
+              if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+                (playResult as Promise<void>).catch((e: unknown) => {
+                  console.warn('Background music play promise rejected:', e)
+                  // Try again after a short delay
+                  this.time.delayedCall(200, () => {
+                    if (this.backgroundMusic1) {
+                      const retryResult = this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+                      if (retryResult && typeof retryResult === 'object' && 'catch' in retryResult) {
+                        (retryResult as Promise<void>).catch((e: unknown) => {
+                          console.warn('Background music play failed on retry:', e)
+                        })
+                      }
+                    }
+                  })
+                })
+              }
+              console.log('✓ Background music started playing')
+            } catch (err: unknown) {
+              console.warn('Failed to play background music:', err)
+              // Try again after a short delay
+              this.time.delayedCall(200, () => {
+                if (this.backgroundMusic1) {
+                  try {
+                    this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+                  } catch (e: unknown) {
+                    console.warn('Background music play failed on retry:', e)
+                  }
+                }
+              })
+            }
           }
         })
+      } else {
+        console.warn('Background music not starting - volume multiplier is 0 (silent mode)')
       }
+    } else {
+      console.warn('Background music not starting - backgroundMusic1 is not initialized')
     }
     
     // Start heartbeat when game starts
