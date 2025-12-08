@@ -3173,33 +3173,57 @@ export class MainScene extends Phaser.Scene {
   }
 
   private cycleVolume(): void {
-    this.playSound('settings-sound', 1.0)
+    // Play sound BEFORE changing volume so it uses current volume setting
+    // If currently muted, don't play sound
+    const currentVolumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+    if (currentVolumeMultiplier > 0) {
+      this.playSound('settings-sound', 1.0)
+    }
+    
     const nextIndex = ((this.settings.volumeIndex + 1) % VOLUME_LEVELS.length) as VolumeLevelIndex
     this.settings = { ...this.settings, volumeIndex: nextIndex }
-    this.sound.volume = VOLUME_LEVELS[this.settings.volumeIndex].value
-    
-    // Update background music - stop if volume is 0, resume if volume > 0 and game is active
     const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+    this.sound.volume = volumeMultiplier
+    
+    // Update background music - stop/pause if volume is 0, resume/start if volume > 0
     if (volumeMultiplier === 0) {
+      // Mute: Stop all sounds
       this.stopBackgroundMusic()
       this.stopHeartbeat()
-    } else if (this.isGameActive && !this.isPausedForSettings) {
-      // Check if neither track is playing, and start if needed (but not during boss level)
-      if (this.isBossLevel) {
-        // Explicitly stop any background music that might be playing during boss level
-        if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
-          this.backgroundMusic1.stop()
+      // Also stop all sound effects
+      this.soundEffects.forEach((sound) => {
+        if (sound && sound.isPlaying) {
+          sound.stop()
         }
-        if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
-          this.backgroundMusic2.stop()
+      })
+    } else {
+      // Unmute: Resume sounds if game is active
+      if (this.isGameActive && !this.isPausedForSettings) {
+        // Check if neither track is playing, and start if needed (but not during boss level)
+        if (this.isBossLevel) {
+          // Explicitly stop any background music that might be playing during boss level
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+            this.backgroundMusic1.stop()
+          }
+          if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+            this.backgroundMusic2.stop()
+          }
+        } else {
+          const isPlaying = (this.backgroundMusic1?.isPlaying) || (this.backgroundMusic2?.isPlaying)
+          if (!isPlaying) {
+            this.startBackgroundMusic(false) // Don't force restart, just start if not playing
+          } else {
+            // Resume if paused
+            if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+              this.backgroundMusic1.resume()
+            }
+            if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+              this.backgroundMusic2.resume()
+            }
+          }
         }
-      } else {
-        const isPlaying = (this.backgroundMusic1?.isPlaying) || (this.backgroundMusic2?.isPlaying)
-        if (!isPlaying) {
-          this.startBackgroundMusic()
-        }
+        this.updateHeartbeat()
       }
-      this.updateHeartbeat()
     }
   }
 
@@ -11018,7 +11042,22 @@ export class MainScene extends Phaser.Scene {
           this.currentMusicTrack = 2
           const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
           if (volumeMultiplier > 0) {
-            this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
+            const playResult = this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
+            // Handle Promise or boolean return
+            if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+              (playResult as Promise<void>).catch((e: unknown) => {
+                console.warn('Track 2 play promise rejected:', e)
+              })
+            }
+            // Re-set up complete event listener for track 2
+            this.backgroundMusic2.removeAllListeners('complete')
+            this.backgroundMusic2.on('complete', () => {
+              if (!this.isBossLevel && this.isGameActive) {
+                console.log('Track 2 completed, looping back to track 1...')
+                this.playNextMusicTrack()
+              }
+            })
+            console.log('✓ Track 2 started playing')
           }
         }
       })
@@ -11035,7 +11074,22 @@ export class MainScene extends Phaser.Scene {
           this.currentMusicTrack = 1
           const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
           if (volumeMultiplier > 0) {
-            this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+            const playResult = this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+            // Handle Promise or boolean return
+            if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+              (playResult as Promise<void>).catch((e: unknown) => {
+                console.warn('Track 1 play promise rejected:', e)
+              })
+            }
+            // Re-set up complete event listener for track 1
+            this.backgroundMusic1.removeAllListeners('complete')
+            this.backgroundMusic1.on('complete', () => {
+              if (!this.isBossLevel && this.isGameActive) {
+                console.log('Track 1 completed, switching to track 2...')
+                this.playNextMusicTrack()
+              }
+            })
+            console.log('✓ Track 1 started playing (looped back)')
           }
         }
       })
