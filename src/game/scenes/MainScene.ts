@@ -10741,12 +10741,13 @@ export class MainScene extends Phaser.Scene {
           const testSound = this.soundEffects.get('settings-sound')
           if (testSound) {
             // Play at very low volume so user doesn't hear it
-            const originalVolume = (testSound as any).volume || 1.0
-            testSound.setVolume(0.01)
-            testSound.play()
+            const soundAny = testSound as any
+            const originalVolume = soundAny.volume || 1.0
+            soundAny.volume = 0.01
+            testSound.play({ volume: 0.01 })
             // Restore volume immediately
             setTimeout(() => {
-              testSound.setVolume(originalVolume)
+              soundAny.volume = originalVolume
               testSound.stop()
             }, 50)
             console.log('✓ Audio system activated with test sound (iOS media volume workaround)')
