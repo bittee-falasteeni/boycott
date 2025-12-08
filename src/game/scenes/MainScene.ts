@@ -8880,13 +8880,13 @@ export class MainScene extends Phaser.Scene {
 
     // FIX: Start background music when game starts (but not during boss level)
     // When respawning, continue existing music instead of restarting
+    // CRITICAL: For new game starts, wait for iOS HTML5 audio activation before starting music
     if (!this.isBossLevel) {
-      // Check if music is already playing - check isPlaying first to avoid starting over existing track
-      const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
-      const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
-      
       if (respawnOnCurrentLevel) {
         // Respawn: Resume music if paused, or start if not playing
+        const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
+        const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
+        
         // IMPORTANT: Check track2 first to prevent track1 from starting over track2
         if (track2Playing) {
           this.currentMusicTrack = 2
@@ -8911,13 +8911,14 @@ export class MainScene extends Phaser.Scene {
             this.currentMusicTrack = 2
             this.backgroundMusic2.resume()
           } else {
-            // No music at all - start it
+            // No music at all - start it (respawn, so iOS should already be activated)
             this.startBackgroundMusic(false)
           }
         }
       } else {
-        // New game start: Force music to actually play - even if it thinks it's playing, it might not be audible
-        // Stop any existing music and restart fresh
+        // New game start: Don't start music here - wait for iOS HTML5 audio activation
+        // The activateAudioSystem callback will start the music after iOS is activated
+        // Stop any existing music first
         if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
           this.backgroundMusic1.stop()
         }
@@ -8925,8 +8926,8 @@ export class MainScene extends Phaser.Scene {
           this.backgroundMusic2.stop()
         }
         
-        // Now start fresh - force restart to ignore "already playing" checks
-        this.startBackgroundMusic(true)
+        // Music will be started by activateAudioSystem callback after iOS activation
+        // This ensures music starts AFTER iOS switches to media volume
       }
     }
 
