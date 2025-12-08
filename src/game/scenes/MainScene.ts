@@ -448,8 +448,6 @@ const LEVEL_BALL_WAVES: Array<Array<{ size: BallSize; textureKey: string }>> = [
   ],
 ]
 
-// TEST: This should appear in build
-console.log('=== MAINSCENE CLASS DEFINED ===')
 export class MainScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -480,7 +478,9 @@ export class MainScene extends Phaser.Scene {
   private levelText!: Phaser.GameObjects.Text
   private gameplayHeight = 0
   private settingsPanel?: Phaser.GameObjects.Container
-  private keepBoycottingButton?: Phaser.GameObjects.Text  // Store reference to Keep Boycotting button
+  private settingsPanelOpenTime = 0  // Timestamp when settings panel was opened (to prevent immediate closing)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private keepBoycottingButton?: Phaser.GameObjects.Text  // Store reference to Keep Boycotting button (stored at line 2619)
   private settingsOptionsMap: Map<string, Phaser.GameObjects.Text> = new Map()
   private instructionsOverlay?: Phaser.GameObjects.Rectangle
   private instructionsPanel?: Phaser.GameObjects.Container
@@ -598,6 +598,7 @@ export class MainScene extends Phaser.Scene {
   private soundEffects: Map<string, Phaser.Sound.BaseSound> = new Map()
   private runSoundPlaying = false
   private projectedHitIndicators: Map<Phaser.Physics.Arcade.Image, Phaser.GameObjects.Text> = new Map()
+  private enemyHitIndicators: Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Text> = new Map()  // Triangles above jet/tanks when hit
   private bulletTargetMap: Map<Phaser.Physics.Arcade.Image, Phaser.Physics.Arcade.Image> = new Map() // bullet -> target ball
   private aimingTriangles: Map<Phaser.Physics.Arcade.Image, Phaser.GameObjects.Text> = new Map()  // Transparent triangles shown when aiming/cocked back
   private trianglesCleared = false  // Flag to prevent immediate recreation after clearing
@@ -783,8 +784,78 @@ export class MainScene extends Phaser.Scene {
 
     keyboard.on('keydown-ESC', () => {
       if (this.isPausedForSettings) {
-        this.closeSettingsPanel()
+        // Check if any nested modal is open first
+        const hasNestedModal = this.hasNestedModalOpen()
+        if (hasNestedModal) {
+          // Close nested modal directly (don't restore settings handlers)
+          if (this.instructionsPanel && this.instructionsPanel.active) {
+            this.instructionsPanel.setVisible(false)
+            this.instructionsPanel.setActive(false)
+            if (this.instructionsOverlay) {
+              this.instructionsOverlay.setVisible(false)
+              this.instructionsOverlay.disableInteractive()
+            }
+          }
+          if (this.creditsPanel && this.creditsPanel.active) {
+            this.creditsPanel.setVisible(false)
+            this.creditsPanel.setActive(false)
+            if (this.creditsOverlay) {
+              this.creditsOverlay.setVisible(false)
+              this.creditsOverlay.disableInteractive()
+            }
+          }
+          if (this.levelSelectionPanel && this.levelSelectionPanel.active) {
+            this.levelSelectionPanel.destroy()
+            this.levelSelectionPanel = undefined
+            this.levelButtons.forEach((btn) => {
+              if (btn && btn.scene) {
+                btn.destroy()
+              }
+            })
+            this.levelButtons = []
+            this.currentlyPressedCity = null
+          }
+          // Close boycotted modal
+          const boycottedObjects = this.children.list.filter((child) => {
+            return child && (child as any).getData && (child as any).getData('isBoycottedModal') === true
+          })
+          boycottedObjects.forEach((obj) => {
+            if (obj && obj.scene) {
+              obj.destroy()
+            }
+          })
+          this.children.list.forEach((child) => {
+            if (child instanceof Phaser.GameObjects.Container && child.getData('isBrandDescription')) {
+              child.destroy()
+            }
+          })
+          // Remove keyboard handlers
+          const keyboard = this.input.keyboard
+          if (keyboard) {
+            keyboard.removeAllListeners('keydown-ENTER')
+            keyboard.removeAllListeners('keydown-SPACE')
+          }
+          // Then close settings and resume game
+          if (this.isPausedForSettings && this.settingsPanel) {
+            this.closeSettingsPanel()
+          }
+        } else {
+          // No nested modal - just close settings
+          this.closeSettingsPanel()
+        }
       } else {
+        this.openSettingsPanel()
+      }
+    })
+    
+    // Enter key: Press Yella button if start modal is visible, or Configure button if game is active
+    keyboard.on('keydown-ENTER', () => {
+      if (this.startPanel?.visible && this.startButtonText) {
+        // Actually trigger the button click by calling startGame
+        const isRespawn = this.startButtonText?.getData('isRespawnButton') === true
+        this.startGame(isRespawn)
+      } else if (!this.isPausedForSettings && this.isGameActive && !this.startPanel?.visible) {
+        // Act as configure button - same check as configure button (just !isPausedForSettings)
         this.openSettingsPanel()
       }
     })
@@ -1446,8 +1517,8 @@ export class MainScene extends Phaser.Scene {
         body.updateFromGameObject()
         body.setVelocity(0, 0)
         body.setAcceleration(0, 0)
-        // Force a physics step to update collision detection
-        this.physics.world.step(0)
+        // Don't force physics step - it can interfere with ball physics
+        // Physics will update naturally on next frame
       }
       this.postTransitionLockFrames--
     }
@@ -1471,8 +1542,8 @@ export class MainScene extends Phaser.Scene {
         if (body) {
           body.updateFromGameObject()
           body.setVelocity(0, 0)
-          // Force physics step to update collision
-          this.physics.world.step(0)
+          // Don't force physics step - it can interfere with ball physics
+          // Physics will update naturally on next frame
         }
       }
       this.postTransitionFrameCount--
@@ -2599,8 +2670,11 @@ export class MainScene extends Phaser.Scene {
       resumeText,
     ]
     
-    // Store reference to Keep Boycotting button
+    // Store reference to Keep Boycotting button (used for future reference)
     this.keepBoycottingButton = resumeText
+    if (this.keepBoycottingButton) {
+      // Store reference for potential future use
+    }
 
     const container = this.add.container(0, 0, containerChildren)
     container.setDepth(20)
@@ -2776,14 +2850,27 @@ export class MainScene extends Phaser.Scene {
   }
 
   private openSettingsPanel(): void {
+    // Check BEFORE ensuring panel exists
+    if (this.isPausedForSettings) {
+      return
+    }
+    
     this.ensureSettingsPanel()
-    if (!this.settingsPanel || this.isPausedForSettings) {
+    if (!this.settingsPanel) {
       return
     }
 
     // Play configure sound and pause music
     this.playSound('configure-sound', 1.0)
     this.pauseBackgroundMusic()
+    
+    // Pause shield sound if shield is active
+    if (this.shieldBubble && this.shieldBubble.active) {
+      const shieldSound = this.soundEffects.get('shield-sound')
+      if (shieldSound && shieldSound instanceof Phaser.Sound.BaseSound && shieldSound.isPlaying) {
+        shieldSound.pause()
+      }
+    }
     
     // Start settings music (loops automatically)
     if (this.settingsMusic && !this.settingsMusic.isPlaying) {
@@ -2803,9 +2890,52 @@ export class MainScene extends Phaser.Scene {
     this.refreshSettingsPanel()
     this.settingsPanel.setVisible(true)
     this.settingsPanel.setActive(true)
+    
+    // Record when panel was opened to prevent immediate closing
+    this.settingsPanelOpenTime = this.time.now
+    
+    // Remove main Enter handler and add settings-specific handlers
+    const settingsKeyboard = this.input.keyboard
+    if (settingsKeyboard) {
+      // Remove the main Enter handler (added in create())
+      settingsKeyboard.removeAllListeners('keydown-ENTER')
+      settingsKeyboard.removeAllListeners('keydown-SPACE')
+      
+      // Define the close handler
+      const closeSettingsHandler = () => {
+        // Prevent immediate closing if panel was just opened (within 300ms to be safe)
+        const timeSinceOpen = this.time.now - (this.settingsPanelOpenTime || 0)
+        if (timeSinceOpen < 300) {
+          return
+        }
+      
+        if (this.settingsPanel?.visible) {
+          // Check if any nested modal is open first
+          const hasNestedModal = this.hasNestedModalOpen()
+          if (hasNestedModal) {
+            // Close the nested modal first
+            this.closeNestedModal()
+          } else {
+            // Act as ESC - close settings and resume game
+            this.closeSettingsPanel()
+          }
+        }
+      }
+      
+      // Add handlers immediately - the debounce check in the handler will prevent immediate triggering
+      // This ensures handlers are always present when settings panel is visible
+      settingsKeyboard.on('keydown-ENTER', closeSettingsHandler)
+      settingsKeyboard.on('keydown-SPACE', closeSettingsHandler)
+    }
   }
 
   private closeSettingsPanel(): void {
+    // Prevent closing if panel was just opened (within 300ms)
+    const timeSinceOpen = this.time.now - (this.settingsPanelOpenTime || 0)
+    if (timeSinceOpen < 300) {
+      return
+    }
+    
     if (!this.settingsPanel) {
       return
     }
@@ -2825,10 +2955,18 @@ export class MainScene extends Phaser.Scene {
       this.settingsMusic.stop()
     }
     this.resumeBackgroundMusic()
+    
+    // Resume shield sound if shield is active
+    if (this.shieldBubble && this.shieldBubble.active) {
+      const shieldSound = this.soundEffects.get('shield-sound')
+      if (shieldSound && shieldSound instanceof Phaser.Sound.BaseSound && shieldSound.isPaused) {
+        shieldSound.resume()
+      }
+    }
 
     this.isPausedForSettings = false
     this.physics.world.resume()
-    this.tweens.resumeAll()
+    this.tweens.pauseAll()
     this.time.timeScale = this.previousTimeScale
     if (this.settingsButton) {
       this.settingsButton.setAlpha(1)
@@ -2839,12 +2977,143 @@ export class MainScene extends Phaser.Scene {
     this.settingsPanel.setActive(false)
     this.applySettingsVisuals()
     this.registry.set('game-settings', this.settings)
+    
+    // Remove keyboard handlers when closing settings
+    const closeSettingsKeyboard = this.input.keyboard
+    if (closeSettingsKeyboard) {
+      // Remove Enter/Space handlers that were added for settings panel
+      closeSettingsKeyboard.removeAllListeners('keydown-ENTER')
+      closeSettingsKeyboard.removeAllListeners('keydown-SPACE')
+      
+      // Delay restoring game handlers to prevent the same keydown event from triggering
+      this.time.delayedCall(150, () => {
+        if (closeSettingsKeyboard) {
+          // Re-add Enter handler for game (if needed)
+          closeSettingsKeyboard.on('keydown-ENTER', () => {
+            if (this.startPanel?.visible && this.startButtonText) {
+              const isRespawn = this.startButtonText?.getData('isRespawnButton') === true
+              this.startGame(isRespawn)
+            } else if (!this.isPausedForSettings && this.isGameActive && !this.startPanel?.visible) {
+              // Act as configure button - same check as configure button (just !isPausedForSettings)
+              this.openSettingsPanel()
+            }
+          })
+          // Re-add Space handler for game (for throwing)
+          if (!this.fireKey) {
+            this.fireKey = closeSettingsKeyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+          }
+        }
+      })
+    }
   }
 
   private applySettingsVisuals(): void {
     if (this.backgroundLayer) {
       this.updateBackgroundScale()
       this.backgroundLayer.setVisible(this.settings.showBackground)
+    }
+  }
+
+  private hasNestedModalOpen(): boolean {
+    // Check if any nested modal is currently open
+    if (this.instructionsPanel && this.instructionsPanel.active) {
+      return true
+    }
+    if (this.creditsPanel && this.creditsPanel.active) {
+      return true
+    }
+    if (this.levelSelectionPanel && this.levelSelectionPanel.active) {
+      return true
+    }
+    // Check for boycotted modal (it doesn't have a stored panel, so check for its objects)
+    const hasBoycottedModal = this.children.list.some((child) => {
+      return child && (child as any).getData && (child as any).getData('isBoycottedModal') === true
+    })
+    if (hasBoycottedModal) {
+      return true
+    }
+    return false
+  }
+
+  private closeNestedModal(): void {
+    // Close the currently open nested modal
+    if (this.instructionsPanel && this.instructionsPanel.active) {
+      this.closeInstructionsPanel()
+      return
+    }
+    if (this.creditsPanel && this.creditsPanel.active) {
+      this.closeCreditsPanel()
+      return
+    }
+    if (this.levelSelectionPanel && this.levelSelectionPanel.active) {
+      this.levelSelectionPanel.destroy()
+      this.levelSelectionPanel = undefined
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        keyboard.removeAllListeners('keydown-ENTER')
+        keyboard.removeAllListeners('keydown-SPACE')
+      }
+      return
+    }
+    // Close boycotted modal
+    const boycottedObjects = this.children.list.filter((child) => {
+      return child && (child as any).getData && (child as any).getData('isBoycottedModal') === true
+    })
+    if (boycottedObjects.length > 0) {
+      boycottedObjects.forEach((obj) => {
+        if (obj && obj.scene) {
+          obj.destroy()
+        }
+      })
+      // Also destroy any description tooltips
+      this.children.list.forEach((child) => {
+        if (child instanceof Phaser.GameObjects.Container && child.getData('isBrandDescription')) {
+          child.destroy()
+        }
+      })
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        keyboard.removeAllListeners('keydown-ENTER')
+        keyboard.removeAllListeners('keydown-SPACE')
+        // Re-add settings panel handler if settings panel is still open
+        if (this.settingsPanel?.visible) {
+          const closeSettingsHandler = () => {
+            if (this.settingsPanel?.visible) {
+              // Check if any nested modal is open first
+              const hasNestedModal = this.hasNestedModalOpen()
+              if (hasNestedModal) {
+                // Close the nested modal first
+                this.closeNestedModal()
+              } else {
+                // If no nested modal, close settings
+                this.closeSettingsPanel()
+              }
+            }
+          }
+          keyboard.on('keydown-ENTER', closeSettingsHandler)
+          keyboard.on('keydown-SPACE', closeSettingsHandler)
+        } else {
+          // If settings panel is NOT visible, we're exiting directly to game - resume game state
+          if (this.isPausedForSettings) {
+            // Resume game if it was paused
+            this.physics.world.resume()
+            this.tweens.resumeAll()
+            if (this.previousTimeScale !== undefined) {
+              this.time.timeScale = this.previousTimeScale
+            }
+            this.isPausedForSettings = false
+          }
+          // Restore settings button state
+          if (this.settingsButton) {
+            this.settingsButton.setAlpha(1)
+            this.settingsButton.setInteractive({ useHandCursor: true })
+          }
+          // Resume background music if game is active
+          if (this.isGameActive) {
+            this.resumeBackgroundMusic()
+          }
+        }
+      }
     }
   }
 
@@ -3130,7 +3399,7 @@ export class MainScene extends Phaser.Scene {
     closeButton.setData('isBoycottedModal', true)
     modalObjects.push(returnButtonShadow, closeButton)
     
-    closeButton.on('pointerdown', () => {
+    const closeBoycottedModal = () => {
       // Destroy all modal objects
       modalObjects.forEach((obj) => {
         if (obj && obj.scene) {
@@ -3145,110 +3414,77 @@ export class MainScene extends Phaser.Scene {
         }
       })
       
-      // Resume game
-      if (this.isPausedForSettings) {
-        this.isPausedForSettings = false
-        this.physics.world.resume()
-        this.tweens.resumeAll()
-        this.time.timeScale = this.previousTimeScale
-      }
-      
-      // Show settings panel again and ensure button is still interactive
-      if (this.settingsPanel) {
-        this.settingsPanel.setVisible(true)
-        this.settingsPanel.setActive(true)
-        // Immediately re-enable interactivity for "Keep Boycotting" button
-        // Use stored reference if available, otherwise search in container
-        const button = this.keepBoycottingButton || this.settingsPanel.list.find((obj: Phaser.GameObjects.GameObject) => 
-          obj instanceof Phaser.GameObjects.Text && obj.text === 'Keep Boycotting'
-        ) as Phaser.GameObjects.Text | undefined
-        
-        if (button) {
-          button.setActive(true)
-          button.setVisible(true)
-          // Bring to front to ensure it's clickable
-          button.setDepth(25)  // Higher than other panel elements
-          
-          // Remove ALL existing event handlers first
-          button.removeAllListeners('pointerdown')
-          button.removeAllListeners('pointerup')
-          button.removeAllListeners('pointerout')
-          button.removeAllListeners('pointerover')
-          
-          // Force re-enable interactivity - remove and re-add
-          if (button.input) {
-            button.disableInteractive()
-          }
-          // Re-enable with proper hit area - use a larger hit area to ensure clicks work
-          const hitAreaPadding = 10
-          button.setInteractive({ 
-            useHandCursor: true,
-            hitArea: new Phaser.Geom.Rectangle(
-              -button.width / 2 - hitAreaPadding, 
-              -button.height / 2 - hitAreaPadding, 
-              button.width + hitAreaPadding * 2, 
-              button.height + hitAreaPadding * 2
-            )
-          })
-          
-          // Re-attach event handlers with fresh references
-          const originalY = button.getData('originalY') as number
-          const shadow = button.getData('shadow') as Phaser.GameObjects.Graphics
-          const bg = button.getData('bg') as Phaser.GameObjects.Graphics
-          if (originalY !== undefined) {
-            // Use a closure to capture the current context
-            const handlePointerDown = (pointer: Phaser.Input.Pointer) => {
-              // Stop event propagation
-              if (pointer && pointer.event) {
-                pointer.event.stopPropagation()
+      // Remove keyboard handlers
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        keyboard.removeAllListeners('keydown-ENTER')
+        keyboard.removeAllListeners('keydown-SPACE')
+        // Re-add settings panel handler if settings panel is still open
+        if (this.settingsPanel?.visible) {
+          const closeSettingsHandler = () => {
+            if (this.settingsPanel?.visible) {
+              // Check if any nested modal is open first
+              const hasNestedModal = this.hasNestedModalOpen()
+              if (hasNestedModal) {
+                // Close the nested modal first
+                this.closeNestedModal()
+              } else {
+                // If no nested modal, close settings
+                this.closeSettingsPanel()
               }
-              const pressOffset = 5
-              button.setY(originalY - pressOffset)
-              if (shadow) shadow.setY(originalY - pressOffset)
-              if (bg) bg.setY(originalY - pressOffset)
-              if (shadow) shadow.setVisible(false)
             }
-            const handlePointerUp = (pointer: Phaser.Input.Pointer) => {
-              // Stop event propagation
-              if (pointer && pointer.event) {
-                pointer.event.stopPropagation()
-              }
-              button.setY(originalY)
-              if (shadow) {
-                shadow.setY(originalY)
-                shadow.setVisible(true)
-              }
-              if (bg) bg.setY(originalY)
-              // Close settings panel and resume game - call directly, don't delay
-              // First resume game state
-              if (this.isPausedForSettings) {
-                this.isPausedForSettings = false
-                this.physics.world.resume()
-                this.tweens.resumeAll()
-                if (this.previousTimeScale !== undefined) {
-                  this.time.timeScale = this.previousTimeScale
+          }
+          keyboard.on('keydown-ENTER', closeSettingsHandler)
+          keyboard.on('keydown-SPACE', closeSettingsHandler)
+        } else {
+          // If settings panel is NOT visible, we should still return to settings (not exit to game)
+          // This matches the behavior of info and field notes modals
+          // If we're already paused for settings, just make the panel visible
+          if (this.isPausedForSettings && this.settingsPanel) {
+            this.settingsPanel.setVisible(true)
+            this.settingsPanel.setActive(true)
+            this.refreshSettingsPanel()
+            
+            // Restore settings panel handlers
+            const closeSettingsHandler = () => {
+              if (this.settingsPanel?.visible) {
+                const hasNestedModal = this.hasNestedModalOpen()
+                if (hasNestedModal) {
+                  this.closeNestedModal()
+                } else {
+                  this.closeSettingsPanel()
                 }
               }
-              // Then close settings panel
-              this.closeSettingsPanel()
             }
-            const handlePointerOut = () => {
-              button.setY(originalY)
-              if (shadow) {
-                shadow.setY(originalY)
-                shadow.setVisible(true)
-              }
-              if (bg) bg.setY(originalY)
+            keyboard.on('keydown-ENTER', closeSettingsHandler)
+            keyboard.on('keydown-SPACE', closeSettingsHandler)
+          } else {
+            // Not paused - open settings normally
+            // Ensure game is paused before opening settings
+            if (!this.isPausedForSettings) {
+              this.isPausedForSettings = true
+              this.physics.world.pause()
+              this.tweens.pauseAll()
+              this.previousTimeScale = this.time.timeScale
+              this.time.timeScale = 0
             }
-            button.on('pointerdown', handlePointerDown)
-            button.on('pointerup', handlePointerUp)
-            button.on('pointerout', handlePointerOut)
+            this.openSettingsPanel()
           }
         }
-        // Bring container to front as well
-        this.settingsPanel.setDepth(20)
       }
-    })
+    }
+    
+    closeButton.on('pointerdown', closeBoycottedModal)
+    
+    // Add keyboard handler to close boycotted modal on Enter/Space (act as Return button)
+    const keyboard = this.input.keyboard
+    if (keyboard) {
+      // Remove any existing handlers first to prevent conflicts
+      keyboard.removeAllListeners('keydown-ENTER')
+      keyboard.removeAllListeners('keydown-SPACE')
+      keyboard.on('keydown-ENTER', closeBoycottedModal)
+      keyboard.on('keydown-SPACE', closeBoycottedModal)
+    }
   }
 
   private showBrandDescription(brandName: string, description: string, x: number, y: number): void {
@@ -4155,6 +4391,20 @@ export class MainScene extends Phaser.Scene {
     
     this.levelSelectionPanel = levelSelectionPanel
     
+    // Add keyboard handler to close level selection on Enter/Space
+    const keyboard = this.input.keyboard
+    if (keyboard) {
+      // Remove any existing handlers first to prevent conflicts
+      keyboard.removeAllListeners('keydown-ENTER')
+      keyboard.removeAllListeners('keydown-SPACE')
+      keyboard.on('keydown-ENTER', () => {
+        this.closeLevelSelection()
+      })
+      keyboard.on('keydown-SPACE', () => {
+        this.closeLevelSelection()
+      })
+    }
+    
     // Store when modal was opened to track if clicks are from the opening click
     const modalOpenTime = this.time.now
     const pointerWasDown = this.input.activePointer.isDown
@@ -4240,6 +4490,68 @@ export class MainScene extends Phaser.Scene {
       this.levelSelectionPanel.destroy()
       this.levelSelectionPanel = undefined
     }
+    
+    // Remove keyboard handlers and re-add settings panel handler if needed
+    const closeLevelKeyboard = this.input.keyboard
+    if (closeLevelKeyboard) {
+      closeLevelKeyboard.removeAllListeners('keydown-ENTER')
+      closeLevelKeyboard.removeAllListeners('keydown-SPACE')
+      // Re-add settings panel handler if settings panel is still open
+      if (this.settingsPanel?.visible) {
+        const closeSettingsHandler = () => {
+          if (this.settingsPanel?.visible) {
+            // Check if any nested modal is open first
+            const hasNestedModal = this.hasNestedModalOpen()
+            if (hasNestedModal) {
+              // Close the nested modal first
+              this.closeNestedModal()
+            } else {
+              // If no nested modal, close settings
+              this.closeSettingsPanel()
+            }
+          }
+        }
+        closeLevelKeyboard.on('keydown-ENTER', closeSettingsHandler)
+        closeLevelKeyboard.on('keydown-SPACE', closeSettingsHandler)
+        } else {
+          // If settings panel is NOT visible, we should still return to settings (not exit to game)
+          // This matches the behavior of info and field notes modals
+          console.log('[KEYBOARD] Cities modal closed - settings panel NOT visible')
+          
+          // If we're already paused for settings, just make the panel visible
+          if (this.isPausedForSettings && this.settingsPanel) {
+            this.settingsPanel.setVisible(true)
+            this.settingsPanel.setActive(true)
+            this.refreshSettingsPanel()
+            
+            // Restore settings panel handlers
+            const closeSettingsHandler = () => {
+              if (this.settingsPanel?.visible) {
+                const hasNestedModal = this.hasNestedModalOpen()
+                if (hasNestedModal) {
+                  this.closeNestedModal()
+                } else {
+                  this.closeSettingsPanel()
+                }
+              }
+            }
+            closeLevelKeyboard.on('keydown-ENTER', closeSettingsHandler)
+            closeLevelKeyboard.on('keydown-SPACE', closeSettingsHandler)
+          } else {
+            // Not paused - open settings normally
+            // Ensure game is paused before opening settings
+            if (!this.isPausedForSettings) {
+              this.isPausedForSettings = true
+              this.physics.world.pause()
+              this.tweens.pauseAll()
+              this.previousTimeScale = this.time.timeScale
+              this.time.timeScale = 0
+            }
+            this.openSettingsPanel()
+          }
+        }
+    }
+    
     // Destroy all city containers
     this.levelButtons.forEach((btn) => {
       if (btn && btn.scene) {
@@ -5068,9 +5380,9 @@ export class MainScene extends Phaser.Scene {
     this.triggerThrowAnimation()
     this.flashRockInfinity()
 
-    // Play random throw sound (1-3) when throwing
+    // Play random throw sound (1-3) when throwing at reduced volume
     const throwSoundNum = Phaser.Math.Between(1, 3)
-    this.playSound(`throw-sound${throwSoundNum}`, 0.5)
+    this.playSound(`throw-sound${throwSoundNum}`, 0.25)
 
     // Check if rock will hit a ball and create triangle indicator
     // Use a small delay to ensure velocity is properly set
@@ -5144,8 +5456,8 @@ export class MainScene extends Phaser.Scene {
       this.cameras.main.shake(80, 0.004)
     }
 
-    // Play throw-sound4 when rock actually hits ball
-    this.playSound('throw-sound4', 0.6)
+    // Play throw-sound4 when rock actually hits ball at reduced volume
+    this.playSound('throw-sound4', 0.3)
 
     // Remove triangle indicator if it exists for this bullet
     if (this.bulletTargetMap.has(bullet)) {
@@ -6250,10 +6562,30 @@ export class MainScene extends Phaser.Scene {
         // FIX: Re-enable gravity before enabling body (it was disabled during setup)
         body.setAllowGravity(true)
         
+        // FIX: Apply slow motion BEFORE setting velocity if it's active
+        let finalVelX = horizontalSpeed
+        let finalVelY = verticalSpeed
+        let finalGravity = 240
+        
+        if (this.isSlowMotion && !ball.getData('slowMotionApplied')) {
+          // Store original values for restoration
+          ball.setData('originalVelX', horizontalSpeed)
+          ball.setData('originalVelY', verticalSpeed)
+          ball.setData('originalGravity', 240)
+          
+          // Apply slow motion factor (0.3 = 30% speed) to both velocity and gravity
+          const slowMotionFactor = 0.3
+          finalVelX = horizontalSpeed * slowMotionFactor
+          finalVelY = verticalSpeed * slowMotionFactor
+          finalGravity = 240 * slowMotionFactor
+          ball.setData('slowMotionApplied', true)
+        }
+        
         // FIX: Force position and velocity to be exactly what we want
         ball.setPosition(x, y)
-        ball.setVelocity(horizontalSpeed, verticalSpeed)
-        body.setVelocity(horizontalSpeed, verticalSpeed)  // Also set on body directly
+        ball.setVelocity(finalVelX, finalVelY)
+        body.setVelocity(finalVelX, finalVelY)  // Also set on body directly
+        body.setGravityY(finalGravity)
         body.enable = true
         // Clear any touching/blocked flags for a clean start
         body.touching.none = true
@@ -6267,23 +6599,6 @@ export class MainScene extends Phaser.Scene {
         body.setAngularVelocity(rotationSpeed)
       }
     })
-    
-    // If slow motion is active, apply it to new balls (scale velocity and gravity)
-    if (this.isSlowMotion) {
-      const body = ball.body as Phaser.Physics.Arcade.Body
-      if (body) {
-        // Store original values for restoration
-        ball.setData('originalVelX', horizontalSpeed)
-        ball.setData('originalVelY', verticalSpeed)
-        ball.setData('originalGravity', 240)
-        
-        // Apply slow motion factor (0.3 = 30% speed) to both velocity and gravity
-        const slowMotionFactor = 0.3
-        body.setVelocity(horizontalSpeed * slowMotionFactor, verticalSpeed * slowMotionFactor)
-        body.setGravityY(240 * slowMotionFactor)
-        ball.setData('slowMotionApplied', true)
-      }
-    }
     
     // Initialize velocity tracking for bounce detection
     ball.setData('prevVelX', horizontalSpeed)
@@ -6400,32 +6715,15 @@ export class MainScene extends Phaser.Scene {
       const padding = 12  // Small padding for top right corner
       const scoreY = padding
       
-      // Destroy existing triangle text if it exists
-      if (this.scoreTriangleText) {
-        this.scoreTriangleText.destroy()
+      // FIX: Only destroy triangle if it doesn't exist or is invalid, don't recreate unnecessarily
+      if (this.scoreTriangleText && (!this.scoreTriangleText.scene || !this.scoreTriangleText.active)) {
         this.scoreTriangleText = undefined
       }
       
       // Text stays in original position (top right corner)
       const textX = worldWidth - padding
       
-      // Triangle position - shift left a bit in tank phase only
-      const baseTriangleX = worldWidth - 65  // Base position
-      const triangleX = this.bossPhase.startsWith('tank') ? baseTriangleX - 20 : baseTriangleX  // Shift left 20px in tank phase
-      
-      // Create red triangle text
-      this.scoreTriangleText = this.add.text(triangleX, scoreY, triangle, {
-        fontSize: '90px',
-        fontFamily: 'MontserratBold',
-        color: '#ff3b3b',  // Red color
-        fontStyle: 'underline',
-      })
-      this.scoreTriangleText.setOrigin(1, 0)  // Right origin
-      this.scoreTriangleText.setScrollFactor(0)
-      this.scoreTriangleText.setDepth(10)
-      this.scoreTriangleText.setScale(2.5)
-      
-      // Position text at original position (top right corner)
+      // Position text at original position (top right corner) first
       const restOfText = scoreLabel.replace(triangle, '').trim()  // Remove triangle from label
       this.scoreText.setText(restOfText)
       this.scoreText.setX(textX)  // Original position
@@ -6433,6 +6731,97 @@ export class MainScene extends Phaser.Scene {
       this.scoreText.setY(scoreY)
       this.scoreText.setStyle({ color: '#000000' })  // Black color for boss level text
       this.scoreText.setVisible(true)  // Show text in boss level
+      this.scoreText.setDepth(50)  // Set depth for score text (lower than triangle)
+      
+      // FIX: Position triangle immediately to the left of the text
+      // Calculate triangle position based on text width
+      // Calculate triangle position immediately and also in delayedCall to ensure it's visible during gameplay
+      // First, calculate position immediately using estimated text width
+      const estimatedTextWidth = this.scoreText.width || (this.bossPhase === 'jet' ? 40 : 60)
+      const triangleSpacing = 35  // Increased spacing (from 20) to shift triangle further left
+      let triangleX = textX - estimatedTextWidth - triangleSpacing
+      
+      // Update/create triangle immediately so it's visible during gameplay
+      const existingTri = this.scoreTriangleText as Phaser.GameObjects.Text | undefined
+      const hasValidTriangle = !!(existingTri && existingTri.scene && existingTri.active)
+      
+      if (!hasValidTriangle && this.scoreTriangleText) {
+        // Only destroy if it exists but is invalid
+        try {
+          if (this.scoreTriangleText.scene) {
+            this.scoreTriangleText.destroy()
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+        this.scoreTriangleText = undefined
+      }
+      
+      if (!hasValidTriangle) {
+        this.scoreTriangleText = this.add.text(triangleX, scoreY, triangle, {
+          fontSize: '90px',
+          fontFamily: 'MontserratBold',
+          color: '#ff3b3b',  // Red color
+          fontStyle: 'underline',
+        })
+        this.scoreTriangleText.setOrigin(1, 0)  // Right origin so it attaches to text
+        this.scoreTriangleText.setScrollFactor(0)
+        this.scoreTriangleText.setDepth(300)  // Very high depth to ensure it's above everything
+        this.scoreTriangleText.setScale(2.5)
+        this.scoreTriangleText.setVisible(true)  // Ensure triangle is visible
+        this.scoreTriangleText.setAlpha(1)  // Ensure full opacity
+        this.children.bringToTop(this.scoreTriangleText)
+        this.scoreTriangleText.setActive(true)
+      } else {
+        // Update position of existing triangle - ensure it's visible and on top
+        const tri = existingTri as Phaser.GameObjects.Text
+        tri.setPosition(triangleX, scoreY)
+        tri.setVisible(true)
+        tri.setAlpha(1)
+        tri.setDepth(350)  // Very high depth (higher than hit indicators at 200) to ensure it's above everything
+        tri.setActive(true)
+        this.children.bringToTop(tri)
+        tri.setScrollFactor(0)
+      }
+      
+      // Also update in delayedCall to refine position based on actual text width
+      // Use a small delay to ensure text has rendered and triangle is stable
+      this.time.delayedCall(10, () => {
+        if (!this.scoreTriangleText || !this.scoreTriangleText.scene) {
+          return
+        }
+        
+        const textWidth = this.scoreText.width
+        const triangleX = textX - textWidth - triangleSpacing
+        
+        // Refine position based on actual text width (triangle already created above)
+        if (this.scoreTriangleText && this.scoreTriangleText.scene && this.scoreTriangleText.active) {
+          this.scoreTriangleText.setPosition(triangleX, scoreY)
+          this.scoreTriangleText.setVisible(true)
+          this.scoreTriangleText.setAlpha(1)
+          this.scoreTriangleText.setDepth(300)
+          this.scoreTriangleText.setActive(true)
+          this.children.bringToTop(this.scoreTriangleText)
+        } else {
+          // Triangle was destroyed - recreate it
+          if (this.isBossLevel && (this.bossPhase === 'jet' || this.bossPhase.startsWith('tank'))) {
+            this.scoreTriangleText = this.add.text(triangleX, scoreY, triangle, {
+              fontSize: '90px',
+              fontFamily: 'MontserratBold',
+              color: '#ff3b3b',
+              fontStyle: 'underline',
+            })
+            this.scoreTriangleText.setOrigin(1, 0)
+            this.scoreTriangleText.setScrollFactor(0)
+            this.scoreTriangleText.setDepth(300)
+            this.scoreTriangleText.setScale(2.5)
+            this.scoreTriangleText.setVisible(true)
+            this.scoreTriangleText.setAlpha(1)
+            this.children.bringToTop(this.scoreTriangleText)
+            this.scoreTriangleText.setActive(true)
+          }
+        }
+      })
     } else {
       // Regular level - hide triangle text and show normal score
       if (this.scoreTriangleText) {
@@ -6896,6 +7285,63 @@ export class MainScene extends Phaser.Scene {
       this.instructionsOverlay.setVisible(false)
       this.instructionsOverlay.disableInteractive()
     }
+    // Remove keyboard handlers when closing
+    const keyboard = this.input.keyboard
+    if (keyboard) {
+      keyboard.removeAllListeners('keydown-ENTER')
+      keyboard.removeAllListeners('keydown-SPACE')
+      // Re-add settings panel handler if settings panel is still open
+      if (this.settingsPanel?.visible) {
+        const closeSettingsHandler = () => {
+          if (this.settingsPanel?.visible) {
+            // Check if any nested modal is open first
+            const hasNestedModal = this.hasNestedModalOpen()
+            if (hasNestedModal) {
+              // Close the nested modal first
+              this.closeNestedModal()
+            } else {
+              // If no nested modal, close settings
+              this.closeSettingsPanel()
+            }
+          }
+        }
+        keyboard.on('keydown-ENTER', closeSettingsHandler)
+        keyboard.on('keydown-SPACE', closeSettingsHandler)
+      } else {
+        // If settings panel is NOT visible, we should still return to settings (not exit to game)
+        // If we're already paused for settings, just make the panel visible
+        if (this.isPausedForSettings && this.settingsPanel) {
+          this.settingsPanel.setVisible(true)
+          this.settingsPanel.setActive(true)
+          this.refreshSettingsPanel()
+          
+          // Restore settings panel handlers
+          const closeSettingsHandler = () => {
+            if (this.settingsPanel?.visible) {
+              const hasNestedModal = this.hasNestedModalOpen()
+              if (hasNestedModal) {
+                this.closeNestedModal()
+              } else {
+                this.closeSettingsPanel()
+              }
+            }
+          }
+          keyboard.on('keydown-ENTER', closeSettingsHandler)
+          keyboard.on('keydown-SPACE', closeSettingsHandler)
+        } else {
+          // Not paused - open settings normally
+          // Ensure game is paused before opening settings
+          if (!this.isPausedForSettings) {
+            this.isPausedForSettings = true
+            this.physics.world.pause()
+            this.tweens.pauseAll()
+            this.previousTimeScale = this.time.timeScale
+            this.time.timeScale = 0
+          }
+          this.openSettingsPanel()
+        }
+      }
+    }
   }
 
   private openInstructionsPanel(): void {
@@ -6906,7 +7352,20 @@ export class MainScene extends Phaser.Scene {
       this.instructionsOverlay = this.add.rectangle(worldWidth / 2, worldHeight / 2, worldWidth, worldHeight, 0x000000, 0.65)
       this.instructionsOverlay.setDepth(20)
       this.instructionsOverlay.setInteractive()
-      this.instructionsOverlay.on('pointerdown', () => this.closeInstructionsPanel())
+      const closeInstructions = () => {
+        this.closeInstructionsPanel()
+      }
+      this.instructionsOverlay.on('pointerdown', closeInstructions)
+      
+      // Add keyboard handler to close on Enter/Space
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        // Remove any existing handlers first to prevent conflicts
+        keyboard.removeAllListeners('keydown-ENTER')
+        keyboard.removeAllListeners('keydown-SPACE')
+        keyboard.on('keydown-ENTER', closeInstructions)
+        keyboard.on('keydown-SPACE', closeInstructions)
+      }
     }
 
     if (!this.instructionsPanel) {
@@ -6989,7 +7448,17 @@ export class MainScene extends Phaser.Scene {
         padding: closeButtonPadding,
       }).setOrigin(0.5)
       closeButton.setInteractive({ useHandCursor: true })
-      closeButton.on('pointerdown', () => this.closeInstructionsPanel())
+      const closeHandler = () => {
+        this.closeInstructionsPanel()
+      }
+      closeButton.on('pointerdown', closeHandler)
+      
+      // Add keyboard handler to close on Enter/Space
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        keyboard.on('keydown-ENTER', closeHandler)
+        keyboard.on('keydown-SPACE', closeHandler)
+      }
 
       panel.add([background, title, aboutTitle, aboutBody, controlsTitle, controls, closeButtonShadow, closeButton])
       this.instructionsPanel = panel
@@ -7008,7 +7477,25 @@ export class MainScene extends Phaser.Scene {
       this.creditsOverlay = this.add.rectangle(worldWidth / 2, worldHeight / 2, worldWidth, worldHeight, 0x000000, 0.65)
       this.creditsOverlay.setDepth(22)
       this.creditsOverlay.setInteractive()
-      this.creditsOverlay.on('pointerdown', () => this.closeCreditsPanel())
+      const closeCreditsFromOverlay = () => {
+        this.closeCreditsPanel()
+        const keyboard = this.input.keyboard
+        if (keyboard) {
+          keyboard.removeAllListeners('keydown-ENTER')
+          keyboard.removeAllListeners('keydown-SPACE')
+        }
+      }
+      this.creditsOverlay.on('pointerdown', closeCreditsFromOverlay)
+      
+      // Add keyboard handler to close on Enter/Space
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        // Remove any existing handlers first to prevent conflicts
+        keyboard.removeAllListeners('keydown-ENTER')
+        keyboard.removeAllListeners('keydown-SPACE')
+        keyboard.on('keydown-ENTER', closeCreditsFromOverlay)
+        keyboard.on('keydown-SPACE', closeCreditsFromOverlay)
+      }
     }
 
     if (!this.creditsPanel) {
@@ -7107,7 +7594,20 @@ export class MainScene extends Phaser.Scene {
         padding: { left: 22, right: 22, top: 8, bottom: 8 },
       }).setOrigin(0.5)
       closeButton.setInteractive({ useHandCursor: true })
-      closeButton.on('pointerdown', () => this.closeCreditsPanel())
+      const closeCredits = () => {
+        this.closeCreditsPanel()
+      }
+      closeButton.on('pointerdown', closeCredits)
+      
+      // Add keyboard handler to close on Enter/Space (act as Return button)
+      const keyboard = this.input.keyboard
+      if (keyboard) {
+        // Remove any existing handlers first to prevent conflicts
+        keyboard.removeAllListeners('keydown-ENTER')
+        keyboard.removeAllListeners('keydown-SPACE')
+        keyboard.on('keydown-ENTER', closeCredits)
+        keyboard.on('keydown-SPACE', closeCredits)
+      }
 
       panel.add([background, ...creditsChildren, closeButton])
       this.creditsPanel = panel
@@ -7126,6 +7626,63 @@ export class MainScene extends Phaser.Scene {
     if (this.creditsOverlay) {
       this.creditsOverlay.setVisible(false)
       this.creditsOverlay.disableInteractive()
+    }
+    // Remove keyboard handlers
+    const keyboard = this.input.keyboard
+    if (keyboard) {
+      keyboard.removeAllListeners('keydown-ENTER')
+      keyboard.removeAllListeners('keydown-SPACE')
+      // Re-add settings panel handler if settings panel is still open
+      if (this.settingsPanel?.visible) {
+        const closeSettingsHandler = () => {
+          if (this.settingsPanel?.visible) {
+            // Check if any nested modal is open first
+            const hasNestedModal = this.hasNestedModalOpen()
+            if (hasNestedModal) {
+              // Close the nested modal first
+              this.closeNestedModal()
+            } else {
+              // If no nested modal, close settings
+              this.closeSettingsPanel()
+            }
+          }
+        }
+        keyboard.on('keydown-ENTER', closeSettingsHandler)
+        keyboard.on('keydown-SPACE', closeSettingsHandler)
+      } else {
+        // If settings panel is NOT visible, we should still return to settings (not exit to game)
+        // If we're already paused for settings, just make the panel visible
+        if (this.isPausedForSettings && this.settingsPanel) {
+          this.settingsPanel.setVisible(true)
+          this.settingsPanel.setActive(true)
+          this.refreshSettingsPanel()
+          
+          // Restore settings panel handlers
+          const closeSettingsHandler = () => {
+            if (this.settingsPanel?.visible) {
+              const hasNestedModal = this.hasNestedModalOpen()
+              if (hasNestedModal) {
+                this.closeNestedModal()
+              } else {
+                this.closeSettingsPanel()
+              }
+            }
+          }
+          keyboard.on('keydown-ENTER', closeSettingsHandler)
+          keyboard.on('keydown-SPACE', closeSettingsHandler)
+        } else {
+          // Not paused - open settings normally
+          // Ensure game is paused before opening settings
+          if (!this.isPausedForSettings) {
+            this.isPausedForSettings = true
+            this.physics.world.pause()
+            this.tweens.pauseAll()
+            this.previousTimeScale = this.time.timeScale
+            this.time.timeScale = 0
+          }
+          this.openSettingsPanel()
+        }
+      }
     }
   }
 
@@ -7553,8 +8110,9 @@ export class MainScene extends Phaser.Scene {
       const shiftDown = 60  // Increased more to shift "Good work!" down further
       
       const goodWorkY = titleBottom + equalSpacing + shiftDown
-      const destroyedY = goodWorkY + equalSpacing + 20  // Shifted down more (increased from 10 to 20)
-      const labelY = destroyedY + equalSpacing + 30  // "Boycotted:" shifted down more (increased from 20 to 30)
+      // Position "Destroyed" text between title and "Boycotted:" (between titleBottom and labelY)
+      const labelY = goodWorkY + equalSpacing + 30  // "Boycotted:" position
+      const destroyedY = (titleBottom + labelY) / 2  // Position between title and "Boycotted:"
 
       if (this.startMessageText) {
         this.startMessageText.setVisible(true)
@@ -7714,6 +8272,33 @@ export class MainScene extends Phaser.Scene {
     this.startOverlay?.setVisible(true).setActive(true).setInteractive()
     this.startPanel?.setVisible(true).setActive(true)
 
+    // Add keyboard handler for Spacebar to press Yella button when start modal is visible
+    const keyboard = this.input.keyboard
+    if (keyboard && this.startPanel?.visible) {
+      // Remove Spacebar handler for throwing temporarily while modal is visible
+      keyboard.removeAllListeners('keydown-SPACE')
+      // Spacebar: Press Yella button when start modal is visible
+      keyboard.on('keydown-SPACE', () => {
+        if (this.startPanel?.visible && this.startButtonText) {
+          // Actually trigger the button click by calling startGame
+          const isRespawn = this.startButtonText?.getData('isRespawnButton') === true
+          this.startGame(isRespawn)
+        }
+      })
+      
+      // Enter key: Also press Yella button when start modal is visible
+      keyboard.on('keydown-ENTER', () => {
+        if (this.startPanel?.visible && this.startButtonText) {
+          // Actually trigger the button click by calling startGame
+          const isRespawn = this.startButtonText?.getData('isRespawnButton') === true
+          this.startGame(isRespawn)
+        } else if (this.settingsPanel?.visible) {
+          // If settings panel is visible, close it
+          this.closeSettingsPanel()
+        }
+      })
+    }
+
     this.physics.world.pause()
     this.tweens.pauseAll()
     this.time.timeScale = 0
@@ -7723,6 +8308,17 @@ export class MainScene extends Phaser.Scene {
   private hideStartModal(): void {
     this.startOverlay?.setVisible(false).disableInteractive()
     this.startPanel?.setVisible(false).setActive(false)
+    
+    // Remove Spacebar handler when modal is hidden so it doesn't interfere with throwing
+    const keyboard = this.input.keyboard
+    if (keyboard) {
+      keyboard.removeAllListeners('keydown-SPACE')
+      // Re-add Spacebar for throwing in game
+      if (!this.fireKey) {
+        this.fireKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+      }
+    }
+    
     // Re-enable start button when modal is hidden (in case it was disabled)
     const startButton = this.startPanel?.getData('startButton') as Phaser.GameObjects.Text
     if (startButton) {
@@ -8169,8 +8765,9 @@ export class MainScene extends Phaser.Scene {
       this.sound.setMute(false)
     }
 
-    // FIX: Clear all triangles when starting/respawning game
+    // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
+    // After clearing, if we're in a boss level, the triangle will be recreated in updateHud
 
     // Stop celebration music (palestine-8bit) if respawning from victory modal
     if (this.bossPhase === 'victory' && this.bossMusic && this.bossMusic.isPlaying) {
@@ -8178,28 +8775,50 @@ export class MainScene extends Phaser.Scene {
     }
 
     // FIX: Start background music when game starts (but not during boss level)
-    // Only start if not respawning OR if no music is currently playing
+    // When respawning, continue existing music instead of restarting
     if (!this.isBossLevel) {
-      // Check if music is already playing before starting
+      // Check if music is already playing
       const track1Playing = this.backgroundMusic1 && (this.backgroundMusic1.isPlaying || !this.backgroundMusic1.isPaused)
       const track2Playing = this.backgroundMusic2 && (this.backgroundMusic2.isPlaying || !this.backgroundMusic2.isPaused)
       
-      if (!track1Playing && !track2Playing) {
-        // No music playing - start it
-        this.startBackgroundMusic()
-      } else {
-        // Music is playing - just ensure it continues (don't restart)
-        if (track2Playing) {
-          this.currentMusicTrack = 2
-          if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
-            this.backgroundMusic2.resume()
-          }
-        } else if (track1Playing) {
+      if (respawnOnCurrentLevel) {
+        // Respawn: Resume music if paused, or start if not playing
+        if (track1Playing) {
           this.currentMusicTrack = 1
-          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
-            this.backgroundMusic1.resume()
+          // Ensure it's actually playing (resume if paused, start if stopped)
+          if (this.backgroundMusic1) {
+            if (this.backgroundMusic1.isPaused) {
+              this.backgroundMusic1.resume()
+            } else if (!this.backgroundMusic1.isPlaying) {
+              this.backgroundMusic1.play()
+            }
           }
+        } else if (track2Playing) {
+          this.currentMusicTrack = 2
+          // Ensure it's actually playing (resume if paused, start if stopped)
+          if (this.backgroundMusic2) {
+            if (this.backgroundMusic2.isPaused) {
+              this.backgroundMusic2.resume()
+            } else if (!this.backgroundMusic2.isPlaying) {
+              this.backgroundMusic2.play()
+            }
+          }
+        } else {
+          // No music playing - start it (shouldn't happen on respawn, but handle it)
+          this.startBackgroundMusic(false)
         }
+      } else {
+        // New game start: Force music to actually play - even if it thinks it's playing, it might not be audible
+        // Stop any existing music and restart fresh
+        if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+          this.backgroundMusic1.stop()
+        }
+        if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+          this.backgroundMusic2.stop()
+        }
+        
+        // Now start fresh - force restart to ignore "already playing" checks
+        this.startBackgroundMusic(true)
       }
     }
 
@@ -8347,6 +8966,20 @@ export class MainScene extends Phaser.Scene {
 
   private handleGameOver(): void {
     this.stopHeartbeat()
+    // Stop all powerup sounds when Bittee dies
+    this.timeSoundInstances.forEach(instance => {
+      if (instance && instance.isPlaying) {
+        instance.stop()
+      }
+    })
+    this.timeSoundInstances = []
+    const shieldSound = this.soundEffects.get('shield-sound')
+    if (shieldSound && shieldSound instanceof Phaser.Sound.BaseSound && shieldSound.isPlaying) {
+      shieldSound.stop()
+    }
+    // Clean up powerups including indicators and sounds
+    this.resetPowerUps()
+    
     // Increment death count when player dies
     this.deathCount++
     this.lives = 0
@@ -8381,6 +9014,10 @@ export class MainScene extends Phaser.Scene {
     if (!this.isGameActive) {
       return
     }
+    
+    // End powerups (shield and slow motion) when transitioning to next level
+    // Use resetPowerUps to clean up everything including indicators and sounds
+    this.resetPowerUps()
     
     // Check if we're at moon level (index 11) - transition to boss level
     if (this.currentLevelIndex === 11 && !this.isBossLevel) {
@@ -8769,8 +9406,11 @@ export class MainScene extends Phaser.Scene {
         })
       }
       
+      // FIX: Create triangle indicator above jet when hit
+      this.createEnemyHitIndicator(enemy, 1.2)
+      
       // Play opp hit sound
-      this.playSound('opp-hit', 1.0)
+      this.playSound('opp-hit', 0.25)
       
       if (this.jetHealth <= 0) {
         // Play opp die sound
@@ -8817,8 +9457,11 @@ export class MainScene extends Phaser.Scene {
         })
       }
       
+      // FIX: Create triangle indicator above tank when hit
+      this.createEnemyHitIndicator(enemy, 1.2)
+      
       // Play opp hit sound
-      this.playSound('opp-hit', 1.0)
+      this.playSound('opp-hit', 0.25)
       
       if (this.tankHealths[tankIndex] <= 0) {
         // Play opp die sound
@@ -8845,15 +9488,15 @@ export class MainScene extends Phaser.Scene {
           // Force taunt mode immediately - don't wait for ground check
           const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
           
-          // Force taunt mode
+          // Force taunt mode but allow gravity so Bittee falls to ground
           this.isTaunting = true
           this.player.setVelocityX(0)
           if (playerBody) {
-            playerBody.setVelocity(0, 0)
+            playerBody.setVelocityX(0)  // Only stop horizontal velocity
             playerBody.setAcceleration(0, 0)
-            playerBody.setAllowGravity(false)
+            playerBody.setAllowGravity(true)  // Allow gravity so Bittee falls
           }
-          this.tauntGravityDisabled = true
+          this.tauntGravityDisabled = false  // Allow gravity during victory taunt
           
           // Play taunt animation
           const tauntKey = this.currentTauntFrame === 1 ? 'bittee-taunt' : 'bittee-taunt2'
@@ -8881,6 +9524,9 @@ export class MainScene extends Phaser.Scene {
     if (tankNumber === 1) {
       this.tanksDestroyedCount = 0
     }
+    
+    // FIX: Update HUD immediately when phase changes to show correct triangle text
+    this.updateHud()
     
     // Destroy all previous tanks - only show current tank (keep the bottom one)
     for (let i = 0; i < this.tanks.length; i++) {
@@ -9127,10 +9773,38 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Store direction so other logic (like bullets) can reference it
-    this.tankDirections[tankIndex] = direction
+    const previousDirection = this.tankDirections[tankIndex] ?? direction
+    const currentTime = this.time.now
+    const flipDelay = 400  // Less than half a second (400ms)
     
-    // Flip sprite based on direction
-    tank.setFlipX(direction < 0)
+    // Check if direction changed (tank needs to flip)
+    const directionChanged = previousDirection !== direction
+    const lockTime = this.tankDirectionLockTimes[tankIndex] ?? 0
+    
+    if (directionChanged && currentTime < lockTime) {
+      // Direction changed but we're still in lock period - keep previous direction
+      // Don't update stored direction yet, keep moving in previous direction
+      const lockedDirection = previousDirection
+      this.tankDirections[tankIndex] = lockedDirection
+      // Keep velocity in locked direction
+      const lockedVelX = lockedDirection * speed
+      tank.setVelocityX(lockedVelX)
+      if (tankBody) {
+        tankBody.setVelocityX(lockedVelX)
+      }
+      // Don't flip yet - keep current flip state
+    } else {
+      // Direction didn't change OR lock period expired - update direction and flip
+      this.tankDirections[tankIndex] = direction
+      
+      if (directionChanged) {
+        // Direction changed and lock expired - set new lock time and flip
+        this.tankDirectionLockTimes[tankIndex] = currentTime + flipDelay
+      }
+      
+      // Flip sprite based on direction
+      tank.setFlipX(direction < 0)
+    }
     
     // Update collider and debug box for current direction:
     // - Shifted down toward tank tracks (bottom-aligned)
@@ -9717,10 +10391,9 @@ export class MainScene extends Phaser.Scene {
       // Remove any existing listeners first to prevent duplicates
       this.backgroundMusic1.removeAllListeners('complete')
       this.backgroundMusic1.on('complete', () => {
-        // FIX: Double check isBossLevel and ensure track 1 actually finished
-        // Also check that we're not respawning (which would restart track 1)
-        if (!this.isBossLevel && this.backgroundMusic1 && !this.backgroundMusic1.isPlaying && this.isGameActive) {
-          // Only switch to track 2 if track 1 actually finished (not if it was stopped)
+        // FIX: When track 1 completes, automatically play track 2
+        // Only switch if not in boss level and game is active
+        if (!this.isBossLevel && this.isGameActive) {
           this.playNextMusicTrack()
         }
       })
@@ -9791,8 +10464,8 @@ export class MainScene extends Phaser.Scene {
     ]
     soundEffectKeys.forEach((key) => {
       if (this.cache.audio.exists(key)) {
-        // Ball bounce gets 50% volume (reduced from 100%), everything else 70%
-        const baseVolume = key === 'ball-bounce' ? 0.5 : 0.7
+        // Ball bounce gets 25% volume (reduced from 50%), everything else 70%
+        const baseVolume = key === 'ball-bounce' ? 0.25 : 0.7
         this.soundEffects.set(key, this.sound.add(key, { volume: baseVolume }))
       }
     })
@@ -9818,8 +10491,8 @@ export class MainScene extends Phaser.Scene {
 
     const sound = this.soundEffects.get(key)
     if (sound && sound instanceof Phaser.Sound.BaseSound) {
-      // Sound effects base volume: ball-bounce is 100% (1.0), others are 70% (0.7)
-      const baseVolume = key === 'ball-bounce' ? 1.0 : 0.7
+      // Sound effects base volume: ball-bounce is 25% (0.25), others are 70% (0.7)
+      const baseVolume = key === 'ball-bounce' ? 0.25 : 0.7
       const finalVolume = volume * baseVolume * volumeMultiplier
       if (loop && !sound.isPlaying) {
         sound.play({ volume: finalVolume, loop: true })
@@ -9836,7 +10509,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private startBackgroundMusic(): void {
+  private startBackgroundMusic(forceRestart: boolean = false): void {
     // Don't play background music during boss level (boss music plays instead)
     if (this.isBossLevel) {
       // Explicitly stop any background music that might be playing
@@ -9854,45 +10527,57 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
-    // FIX: Check which track is currently playing and continue it instead of restarting
-    // This prevents track 1 from playing on top of track 2 when respawning
-    // Check isPlaying status more reliably
-    const track1Playing = this.backgroundMusic1 && (this.backgroundMusic1.isPlaying || !this.backgroundMusic1.isPaused)
-    const track2Playing = this.backgroundMusic2 && (this.backgroundMusic2.isPlaying || !this.backgroundMusic2.isPaused)
-    
-    if (track2Playing) {
-      // Track 2 is playing - keep it playing, don't restart track 1
-      this.currentMusicTrack = 2
-      // Ensure it's actually playing (resume if paused)
-      if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
-        this.backgroundMusic2.resume()
+    // FIX: If forceRestart is true, skip the "already playing" check and force a fresh start
+    if (!forceRestart) {
+      // Check which track is currently playing and continue it instead of restarting
+      // This prevents track 1 from playing on top of track 2 when respawning
+      // Check isPlaying status more reliably
+      const track1Playing = this.backgroundMusic1 && (this.backgroundMusic1.isPlaying || !this.backgroundMusic1.isPaused)
+      const track2Playing = this.backgroundMusic2 && (this.backgroundMusic2.isPlaying || !this.backgroundMusic2.isPaused)
+      
+      if (track2Playing) {
+        // Track 2 is playing - keep it playing, don't restart track 1
+        this.currentMusicTrack = 2
+        // Ensure it's actually playing (resume if paused)
+        if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+          this.backgroundMusic2.resume()
+        }
+        return
+      } else if (track1Playing) {
+        // Track 1 is playing - keep it playing
+        this.currentMusicTrack = 1
+        // Ensure it's actually playing (resume if paused)
+        if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+          this.backgroundMusic1.resume()
+        }
+        return
       }
-      return
-    } else if (track1Playing) {
-      // Track 1 is playing - keep it playing
-      this.currentMusicTrack = 1
-      // Ensure it's actually playing (resume if paused)
-      if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
-        this.backgroundMusic1.resume()
+    } else {
+      // Force restart - stop everything first
+      if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+        this.backgroundMusic1.stop()
       }
-      return
+      if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+        this.backgroundMusic2.stop()
+      }
     }
 
     // No track is playing - start with track 1
+    // FIX: Always stop and restart to ensure it actually plays (might be in false "playing" state)
     this.currentMusicTrack = 1
     if (this.backgroundMusic1) {
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+      
       if (volumeMultiplier > 0) {
-        // Always play, even if it says it's playing (might be paused or in wrong state)
-        if (this.backgroundMusic1.isPaused) {
-          this.backgroundMusic1.resume()
-        } else if (!this.backgroundMusic1.isPlaying) {
-          this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
-        } else {
-          // If it says it's playing but we can't hear it, try stopping and restarting
-          this.backgroundMusic1.stop()
-          this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
-        }
+        // Always stop first to clear any weird state, then play fresh
+        this.backgroundMusic1.stop()
+        
+        // Small delay to ensure stop completes, then play
+        this.time.delayedCall(50, () => {
+          if (this.backgroundMusic1) {
+            this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+          }
+        })
       }
     }
     
@@ -9918,25 +10603,41 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
-    // Switch to the next track
+    // Switch to the next track - always stop current track first to prevent overlap
     if (this.currentMusicTrack === 1) {
-      // Play track 2
-      this.currentMusicTrack = 2
-      if (this.backgroundMusic2) {
-        const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
-        if (volumeMultiplier > 0) {
-          this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
-        }
+      // Track 1 just finished - switch to track 2
+      // Stop track 1 first to prevent overlap
+      if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+        this.backgroundMusic1.stop()
       }
+      
+      // Small delay to ensure stop completes before starting next track
+      this.time.delayedCall(50, () => {
+        if (this.backgroundMusic2 && !this.backgroundMusic2.isPlaying) {
+          this.currentMusicTrack = 2
+          const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+          if (volumeMultiplier > 0) {
+            this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
+          }
+        }
+      })
     } else {
-      // Loop back to track 1
-      this.currentMusicTrack = 1
-      if (this.backgroundMusic1) {
-        const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
-        if (volumeMultiplier > 0) {
-          this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
-        }
+      // Track 2 just finished - loop back to track 1
+      // Stop track 2 first to prevent overlap
+      if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+        this.backgroundMusic2.stop()
       }
+      
+      // Small delay to ensure stop completes before starting next track
+      this.time.delayedCall(50, () => {
+        if (this.backgroundMusic1 && !this.backgroundMusic1.isPlaying) {
+          this.currentMusicTrack = 1
+          const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+          if (volumeMultiplier > 0) {
+            this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+          }
+        }
+      })
     }
   }
 
@@ -10275,12 +10976,21 @@ export class MainScene extends Phaser.Scene {
         const text = child as Phaser.GameObjects.Text
         // Check if this text is a triangle (contains the triangle emoji)
         if (text.text && text.text.includes('\u25BC')) {
+          // Don't destroy scoreTriangleText (HUD element for boss levels)
+          const isScoreTriangle = text === this.scoreTriangleText
+          if (isScoreTriangle) {
+            return
+          }
+          
           // Check if it's NOT in our Maps
           let foundInMap = false
           this.aimingTriangles.forEach((tri) => {
             if (tri === text) foundInMap = true
           })
           this.projectedHitIndicators.forEach((ind) => {
+            if (ind === text) foundInMap = true
+          })
+          this.enemyHitIndicators.forEach((ind) => {
             if (ind === text) foundInMap = true
           })
           
@@ -10408,6 +11118,91 @@ export class MainScene extends Phaser.Scene {
         attachedIndicator.destroy()
         ball.setData('projectedHitIndicator', undefined)
       }
+    }
+  }
+  
+  private createEnemyHitIndicator(enemy: Phaser.Physics.Arcade.Sprite, _scaleMultiplier: number = 1.2): void {
+    // Remove existing indicator for this enemy if any
+    this.removeEnemyHitIndicator(enemy)
+    
+    // FIX: Position triangle higher up and ensure it's visible
+    // Use a larger offset to position it well above the enemy
+    const triangleY = Math.max(40, enemy.y - enemy.displayHeight / 2 - 100)  // Increased offset to 100px for better visibility, clamped to at least 40px from top
+    
+    // Create red triangle above enemy - 50% larger than ball hit indicators
+    // Ball indicators use scale 1.2, so enemy indicators use 1.8 (1.2 * 1.5)
+    const triangle = this.add.text(enemy.x, triangleY, '\u25BC\ufe0f', {
+      fontSize: '42px',  // 50% larger than 28px (28 * 1.5 = 42)
+      fontFamily: 'MontserratBold',
+      color: '#ff0000', // Red color
+    })
+    triangle.setOrigin(0.5, 0.5)
+    triangle.setDepth(200) // Lower than scoreTriangleText (350) to ensure separation
+    triangle.setScrollFactor(0) // Fixed to camera
+    triangle.setScale(1.8)  // 50% larger than ball indicators (1.2 * 1.5 = 1.8)
+    triangle.setVisible(true)
+    triangle.setAlpha(1)  // Ensure full opacity
+    
+    this.enemyHitIndicators.set(enemy, triangle)
+    
+    // Attach triangle to enemy and add destroy listener for automatic cleanup
+    enemy.setData('enemyHitIndicator', triangle)
+    enemy.removeAllListeners('destroy')
+    enemy.once('destroy', () => {
+      this.removeEnemyHitIndicator(enemy)
+    })
+    enemy.once('removedfromscene', () => {
+      this.removeEnemyHitIndicator(enemy)
+    })
+    
+    // FIX: Update triangle position every frame to follow enemy movement
+    // Account for tank flipping - position triangle above center, accounting for flipX
+    const updatePosition = () => {
+      if (triangle && triangle.scene && enemy && enemy.active && enemy.scene) {
+        // Ensure triangle stays above enemy, but clamp Y to be visible (not negative)
+        const newY = Math.max(40, enemy.y - enemy.displayHeight / 2 - 100)  // Increased offset to 100px for better visibility
+        // For tanks, account for flipX - position triangle above center regardless of flip
+        // For jet, just use center X
+        const enemyType = enemy.getData('enemyType')
+        let newX = enemy.x
+        if (enemyType === 'tank' && enemy.flipX) {
+          // Tank is flipped - triangle should still be centered above tank
+          // No X offset needed since we want it centered
+          newX = enemy.x
+        }
+        triangle.setPosition(newX, newY)
+      } else {
+        // Clean up if enemy or triangle is gone
+        this.removeEnemyHitIndicator(enemy)
+      }
+    }
+    
+    // Update position every frame while enemy is active
+    const updateEvent = this.events.on('update', updatePosition)
+    
+    // Auto-remove after a longer time (800ms instead of 500ms for better visibility)
+    this.time.delayedCall(800, () => {
+      if (updateEvent) {
+        this.events.off('update', updatePosition)
+      }
+      this.removeEnemyHitIndicator(enemy)
+    })
+  }
+  
+  private removeEnemyHitIndicator(enemy: Phaser.Physics.Arcade.Sprite): void {
+    const indicator = this.enemyHitIndicators.get(enemy)
+    if (indicator) {
+      if (indicator.scene) {
+        indicator.destroy()
+      }
+      this.enemyHitIndicators.delete(enemy)
+    }
+    
+    // Also check if indicator exists in scene but not in Map (orphaned)
+    const attachedIndicator = enemy.getData('enemyHitIndicator') as Phaser.GameObjects.Text | undefined
+    if (attachedIndicator && attachedIndicator.scene) {
+      attachedIndicator.destroy()
+      enemy.setData('enemyHitIndicator', undefined)
     }
   }
 
@@ -10718,14 +11513,32 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Resume boss music if in boss level, otherwise resume background music
-    if (this.isBossLevel && this.bossMusic && !this.bossMusic.isPlaying) {
-      this.bossMusic.resume()
+    if (this.isBossLevel && this.bossMusic) {
+      if (this.bossMusic.isPaused) {
+        this.bossMusic.resume()
+      } else if (!this.bossMusic.isPlaying) {
+        this.bossMusic.play()
+      }
     } else {
-      // Resume the current track
-      if (this.currentMusicTrack === 1 && this.backgroundMusic1 && !this.backgroundMusic1.isPlaying) {
+      // FIX: Always prioritize resuming paused tracks, regardless of currentMusicTrack value
+      // This fixes the issue where currentMusicTrack might be wrong but a track is paused
+      if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+        this.currentMusicTrack = 1
         this.backgroundMusic1.resume()
-      } else if (this.currentMusicTrack === 2 && this.backgroundMusic2 && !this.backgroundMusic2.isPlaying) {
+      } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+        this.currentMusicTrack = 2
         this.backgroundMusic2.resume()
+      } else {
+        // Neither track is paused - check currentMusicTrack and resume/start that one
+        if (this.currentMusicTrack === 1 && this.backgroundMusic1) {
+          if (!this.backgroundMusic1.isPlaying) {
+            this.backgroundMusic1.play()
+          }
+        } else if (this.currentMusicTrack === 2 && this.backgroundMusic2) {
+          if (!this.backgroundMusic2.isPlaying) {
+            this.backgroundMusic2.play()
+          }
+        }
       }
     }
     
@@ -10736,17 +11549,17 @@ export class MainScene extends Phaser.Scene {
   }
 
   private playBallBounceSound(): void {
-    // Play ball bounce at 50% volume (reduced from 100%)
+    // Play ball bounce at 25% volume (reduced from 50%)
     const bounceSound = this.soundEffects.get('ball-bounce')
     if (bounceSound && bounceSound instanceof Phaser.Sound.BaseSound) {
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
       if (volumeMultiplier > 0) {
-        bounceSound.play({ volume: 0.5 * volumeMultiplier })
+        bounceSound.play({ volume: 0.25 * volumeMultiplier })
       }
     } else {
-      // Fallback: try playing directly from cache at 50% volume
+      // Fallback: try playing directly from cache at 25% volume
       if (this.cache.audio.exists('ball-bounce')) {
-        this.sound.play('ball-bounce', { volume: 0.5 * VOLUME_LEVELS[this.settings.volumeIndex].value })
+        this.sound.play('ball-bounce', { volume: 0.25 * VOLUME_LEVELS[this.settings.volumeIndex].value })
       }
     }
   }
@@ -10808,13 +11621,16 @@ export class MainScene extends Phaser.Scene {
             body.setVelocity(preservedVelX, targetVelY)
             ball.setData('lastBounceFrame', currentFrame)
             
-            // Set it multiple times over the next 10 frames to ensure it persists
+            // Set it a few times over the next 3 frames to ensure it persists
             // Phaser's bounce system might be overriding it, so we need to be persistent
-            for (let i = 0; i < 10; i++) {
+            // But don't do it too many times as it can cause jitter when shooting/moving
+            for (let i = 0; i < 3; i++) {
               this.time.delayedCall(i, () => {
                 if (ball && ball.active && body) {
                   const currentVel = body.velocity.y
-                  if (currentVel > targetVelY * 0.95) {  // If velocity is too low, restore it
+                  // Only restore if velocity is significantly lower than target (more than 10% off)
+                  // This prevents constant corrections that can cause jitter
+                  if (currentVel < targetVelY * 0.9) {
                     body.setVelocity(preservedVelX, targetVelY)
                   }
                 }
