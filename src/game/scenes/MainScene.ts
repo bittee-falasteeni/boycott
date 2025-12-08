@@ -557,6 +557,7 @@ export class MainScene extends Phaser.Scene {
   private startTitleText?: Phaser.GameObjects.Text
   private startTitleBg?: Phaser.GameObjects.Graphics
   private startMessageText?: Phaser.GameObjects.Text
+  private iosAudioKeepAlive?: HTMLAudioElement  // Keep HTML5 audio playing to maintain iOS media volume
   private firstLineText?: Phaser.GameObjects.Text
   private firstLineUnderline?: Phaser.GameObjects.Graphics
   private victoryUnderline?: Phaser.GameObjects.Graphics
@@ -10688,61 +10689,61 @@ export class MainScene extends Phaser.Scene {
   }
   
   private activateAudioSystem(onComplete?: () => void): void {
-    // iOS Safari CRITICAL workaround: iOS requires an HTML5 audio/video element to play
-    // before it fully activates audio for ALL tabs. Even with Web Audio API unlocked,
-    // iOS stays in "pending" state until a real HTML5 media element plays.
-    // This is why YouTube video triggers audio in other tabs - it uses HTML5 video.
+    // iOS Safari CRITICAL workaround: iOS requires an HTML5 audio/video element to CONTINUOUSLY PLAY
+    // to maintain media volume mode. YouTube works because it keeps HTML5 video playing continuously.
+    // If we remove the HTML5 element, iOS reverts to ringer volume mode.
+    // Solution: Keep a hidden HTML5 audio element playing on loop at very low volume throughout the game.
     
-    // CRITICAL: Use a DIFFERENT audio file for iOS activation (not the background music)
-    // Using the same file that Phaser needs causes conflicts when we remove the HTML5 element
-    // iOS just needs ANY HTML5 audio/video to play to activate media volume
     try {
+      // Clean up any existing keep-alive audio
+      if (this.iosAudioKeepAlive) {
+        try {
+          this.iosAudioKeepAlive.pause()
+          this.iosAudioKeepAlive.src = ''
+          this.iosAudioKeepAlive.remove()
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        this.iosAudioKeepAlive = undefined
+      }
+      
       // Get the base URL from Phaser config
       const baseURL = this.load.baseURL || (import.meta.env.DEV ? '/' : '/boycott/')
       
-      // Use settings-sound.webm for activation (NOT background music - avoids conflict)
-      const activationSoundPath = `${baseURL}assets/audio/settings-sound.webm`
+      // Use settings-sound.webm for keep-alive (NOT background music - avoids conflict)
+      // This is a short sound that will loop continuously
+      const keepAliveSoundPath = `${baseURL}assets/audio/settings-sound.webm`
       
-      // Create HTML5 audio element (not Web Audio API)
-      // This is what iOS Safari needs to fully activate audio for ALL tabs
+      // Create HTML5 audio element that will play continuously
       const html5Audio = document.createElement('audio')
-      html5Audio.src = activationSoundPath
-      html5Audio.volume = 0.01 // Very quiet so user doesn't hear it
+      html5Audio.src = keepAliveSoundPath
+      html5Audio.volume = 0.001 // Extremely quiet - inaudible but keeps iOS in media volume mode
+      html5Audio.loop = true // Loop continuously to maintain media volume mode
       html5Audio.preload = 'auto'
       
-      // Play and immediately pause to activate audio system
+      // Store reference so we can clean up later if needed
+      this.iosAudioKeepAlive = html5Audio
+      
+      // Play the keep-alive audio - this activates and maintains iOS media volume mode
       const playPromise = html5Audio.play()
       if (playPromise !== undefined) {
         playPromise.then(() => {
           // Audio started playing - this activates iOS audio system for ALL tabs
+          // AND keeps it active as long as this element is playing
           console.log('✓ iOS audio system activated with HTML5 audio element (media volume - works for all tabs)')
+          console.log('✓ Keeping HTML5 audio playing continuously to maintain iOS media volume mode')
           
-          // CRITICAL: Play for at least 800ms so iOS recognizes it as "media" and switches to media volume
-          // iOS requires HTML5 audio/video to play for meaningful duration to activate media volume
-          // This is why YouTube works - it plays HTML5 video continuously
+          // Wait a moment for iOS to fully activate, then start game sounds
           setTimeout(() => {
-            // Clean up HTML5 audio element properly before Phaser tries to play
-            try {
-              html5Audio.pause()
-              html5Audio.currentTime = 0
-              html5Audio.src = '' // Clear src to release the file
-              html5Audio.remove() // Remove from DOM
-            } catch (e) {
-              console.warn('Error cleaning up HTML5 audio:', e)
+            // Call callback to ensure game sounds start after activation
+            if (onComplete) {
+              console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
+              onComplete()
             }
-            
-            // Small delay to ensure cleanup completes before Phaser starts playing
-            setTimeout(() => {
-              // Call callback to ensure game sounds start after activation
-              if (onComplete) {
-                console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
-                onComplete()
-              }
-            }, 100) // Additional delay to ensure file is released
-          }, 800) // Play for 800ms to ensure iOS fully switches to media volume
+          }, 500) // Shorter delay since we're keeping the audio playing
         }).catch((err: unknown) => {
           console.warn('HTML5 audio play failed (may need user interaction):', err)
-          // Clean up properly
+          // Clean up on failure
           try {
             html5Audio.pause()
             html5Audio.src = ''
@@ -10750,6 +10751,7 @@ export class MainScene extends Phaser.Scene {
           } catch (e) {
             // Ignore cleanup errors
           }
+          this.iosAudioKeepAlive = undefined
           // Still call callback even if HTML5 audio failed
           if (onComplete) {
             setTimeout(() => onComplete(), 100)
@@ -10762,11 +10764,14 @@ export class MainScene extends Phaser.Scene {
         }
       }
       
-      // NOTE: Phaser is using HTML5 Audio (not Web Audio API), so no additional activation needed
-      // The HTML5 audio element above should be sufficient to activate iOS media volume
-      // Phaser's HTML5 Audio will now use media volume after this activation
+      // NOTE: Phaser is using HTML5 Audio (not Web Audio API)
+      // The continuous HTML5 audio element keeps iOS in media volume mode
+      // Phaser's HTML5 Audio will now use media volume (works when phone is silent)
     } catch (err: unknown) {
       console.warn('Audio activation error:', err)
+      if (onComplete) {
+        setTimeout(() => onComplete(), 100)
+      }
     }
   }
 
