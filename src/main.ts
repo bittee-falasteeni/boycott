@@ -40,11 +40,12 @@ const config: Phaser.Types.Core.GameConfig = {
     pixelArt: false, // Not pixel art, but helps with performance
   },
   audio: {
-    // Force Web Audio API to respect media volume (not ringer volume) on mobile
-    // This allows sound to play even when phone is on silent (like YouTube)
-    disableWebAudio: false, // Use Web Audio API (not HTML5 Audio)
-    // Note: Phaser will create its own audio context, but we'll unlock it on user interaction
-    // Web Audio API uses media volume, HTML5 Audio uses ringer volume
+    // CRITICAL: Use HTML5 Audio instead of Web Audio API for iOS compatibility
+    // iOS Safari requires HTML5 audio/video elements to use media volume (works when silent)
+    // Web Audio API might not work reliably with media volume on iOS even after HTML5 activation
+    // HTML5 Audio will use media volume and play when phone is on silent
+    disableWebAudio: true, // Use HTML5 Audio (not Web Audio API) - required for iOS media volume
+    // Note: HTML5 Audio uses media volume on iOS (like YouTube), Web Audio API can be inconsistent
   },
 }
 
@@ -164,20 +165,9 @@ if (document.readyState === 'complete') {
 const gameWindow = window as any
 gameWindow.unlockAudioContext = unlockAudioContext
 
-// Create Web Audio API context EARLY to ensure Phaser uses it (not HTML5 Audio)
-// This is critical for mobile - Web Audio API uses media volume, HTML5 Audio uses ringer volume
-let earlyAudioContext: AudioContext | null = null
-try {
-  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
-  if (AudioContextClass) {
-    earlyAudioContext = new AudioContextClass()
-    // Store it globally so Phaser can use it
-    gameWindow.earlyAudioContext = earlyAudioContext
-    console.log('Early Web Audio API context created (will use media volume, not ringer volume)')
-  }
-} catch (e) {
-  console.warn('Failed to create early audio context:', e)
-}
+// NOTE: Phaser is configured to use HTML5 Audio (disableWebAudio: true)
+// HTML5 Audio uses media volume on iOS (works when phone is silent, like YouTube)
+// We don't need to create a Web Audio API context since we're using HTML5 Audio
 
 // Create game with error handling
 try {

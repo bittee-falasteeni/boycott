@@ -10591,9 +10591,9 @@ export class MainScene extends Phaser.Scene {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
     }
     
-    // Verify all sounds are using Web Audio API (not HTML5 Audio)
-    // Web Audio API uses media volume (works when silent), HTML5 Audio uses ringer volume (doesn't work when silent)
-    this.verifyWebAudioUsage()
+    // NOTE: Phaser is configured to use HTML5 Audio (disableWebAudio: true in main.ts)
+    // HTML5 Audio uses media volume on iOS (works when phone is silent, like YouTube)
+    // No need to verify Web Audio API usage since we're using HTML5 Audio
   }
   
   private verifyWebAudioUsage(): void {
@@ -10809,44 +10809,9 @@ export class MainScene extends Phaser.Scene {
         }
       }
       
-      // Also try Web Audio API activation as backup
-      const soundManager = this.sound as any
-      if (soundManager && soundManager.context) {
-        const context = soundManager.context
-        
-        if (context.state === 'running') {
-          // Try to play a test sound effect if available
-          const testSound = this.soundEffects.get('settings-sound')
-          if (testSound) {
-            // Play at very low volume so user doesn't hear it
-            const soundAny = testSound as any
-            const originalVolume = soundAny.volume || 1.0
-            soundAny.volume = 0.01
-            testSound.play({ volume: 0.01 })
-            // Restore volume immediately
-            setTimeout(() => {
-              soundAny.volume = originalVolume
-              testSound.stop()
-            }, 50)
-            console.log('✓ Audio system activated with test sound (iOS media volume workaround)')
-          } else {
-            // Fallback: create a brief tone
-            try {
-              const oscillator = context.createOscillator()
-              const gainNode = context.createGain()
-              oscillator.connect(gainNode)
-              gainNode.connect(context.destination)
-              gainNode.gain.value = 0.001 // Very quiet
-              oscillator.frequency.value = 200
-              oscillator.start(0)
-              oscillator.stop(0.01)
-              console.log('✓ Audio system activated with oscillator (iOS media volume workaround)')
-            } catch (e) {
-              console.warn('Failed to activate audio with oscillator:', e)
-            }
-          }
-        }
-      }
+      // NOTE: Phaser is using HTML5 Audio (not Web Audio API), so no additional activation needed
+      // The HTML5 audio element above should be sufficient to activate iOS media volume
+      // Phaser's HTML5 Audio will now use media volume after this activation
     } catch (err: unknown) {
       console.warn('Audio activation error:', err)
     }
