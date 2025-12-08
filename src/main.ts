@@ -40,12 +40,7 @@ const config: Phaser.Types.Core.GameConfig = {
     pixelArt: false, // Not pixel art, but helps with performance
   },
   audio: {
-    // Use Web Audio API (not HTML5 Audio) - but activate with HTML5 audio first for iOS
-    // The HTML5 audio keep-alive activates iOS media volume mode
-    // Then Web Audio API can use media volume (works when phone is silent)
     disableWebAudio: false, // Use Web Audio API (not HTML5 Audio)
-    // Note: We use HTML5 audio element as keep-alive to activate iOS media volume
-    // Then Phaser's Web Audio API will use media volume (works when phone is silent)
   },
 }
 
