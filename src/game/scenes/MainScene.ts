@@ -10640,9 +10640,6 @@ export class MainScene extends Phaser.Scene {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
     }
     
-    // NOTE: Phaser is configured to use Web Audio API (disableWebAudio: false in main.ts)
-    // The HTML5 audio keep-alive activates iOS media volume mode
-    // Then Phaser's Web Audio API uses media volume (works when phone is silent)
   }
 
   private unlockAudioContext(): void {
