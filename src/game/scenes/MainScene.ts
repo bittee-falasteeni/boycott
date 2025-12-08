@@ -539,6 +539,7 @@ export class MainScene extends Phaser.Scene {
   private jumpGravityY = 200
   private isGameActive = false
   private isInvulnerable = false
+  private isAdvancingLevel = false  // Prevent multiple level advances
   private shieldBubble?: Phaser.GameObjects.Image  // Visual bubble for shield power-up
   private isSlowMotion = false  // Track slow motion state
   private slowMotionTimer?: Phaser.Time.TimerEvent
@@ -5869,12 +5870,30 @@ export class MainScene extends Phaser.Scene {
     }
     ball.destroy()
 
-    if (this.balls.countActive(true) === 0 && !this.isBossLevel) {
-      this.time.delayedCall(500, () => {
-        if (this.isGameActive && !this.isBossLevel) {
-          this.advanceLevel()
+    // Check if all balls are destroyed - with error handling for mobile crashes
+    try {
+      if (this.balls && typeof this.balls.countActive === 'function') {
+        const activeCount = this.balls.countActive(true)
+        if (activeCount === 0 && !this.isBossLevel && this.isGameActive) {
+          // Use a flag to prevent multiple level advances
+          if (!this.isAdvancingLevel) {
+            this.isAdvancingLevel = true
+            this.time.delayedCall(500, () => {
+              try {
+                if (this.isGameActive && !this.isBossLevel && this.scene) {
+                  this.advanceLevel()
+                }
+              } catch (err: unknown) {
+                console.error('Error in advanceLevel:', err)
+              } finally {
+                this.isAdvancingLevel = false
+              }
+            })
+          }
         }
-      })
+      }
+    } catch (err: unknown) {
+      console.error('Error checking ball count:', err)
     }
   }
 
@@ -8073,9 +8092,12 @@ export class MainScene extends Phaser.Scene {
       })
 
       // Add gray text under Yella button about unmuting phone
-      const unmuteTextY = buttonY + buttonHeight / 2 + 15  // Below button with spacing
-      const unmuteText = this.add.text(0, unmuteTextY, '(Unmute phone to hear game sound.)', {
-        fontSize: '14px',
+      // Position it in the middle between bottom of button and bottom edge of modal
+      const buttonBottom = buttonY + buttonHeight / 2
+      const modalBottom = panelHeight / 2
+      const unmuteTextY = (buttonBottom + modalBottom) / 2  // Middle point
+      const unmuteText = this.add.text(0, unmuteTextY, '(Unmute phone to hear game sound)', {
+        fontSize: '16px',  // Larger font
         fontFamily: 'Montserrat',
         color: '#808080',  // Gray
         align: 'center',
@@ -9167,46 +9189,93 @@ export class MainScene extends Phaser.Scene {
   }
 
   private advanceLevel(): void {
-    // Play level complete sound
-    this.playSound('level-complete', 0.6)
-    if (!this.isGameActive) {
-      return
-    }
-    
-    // End powerups (shield and slow motion) when transitioning to next level
-    // Use resetPowerUps to clean up everything including indicators and sounds
-    this.resetPowerUps()
-    
-    // Check if we're at moon level (index 11) - transition to boss level
-    if (this.currentLevelIndex === 11 && !this.isBossLevel) {
-      this.startBossLevel()
-      return
-    }
-    
-    // If in boss level, handle boss phase progression
-    if (this.isBossLevel) {
-      this.advanceBossPhase()
-      return
-    }
-    
-    const lastLevelIndex = 11  // Moon is the last regular level
-    if (this.currentLevelIndex >= lastLevelIndex) {
-      this.handleCampaignComplete()
-      return
-    }
+    try {
+      // Prevent multiple calls
+      if (this.isAdvancingLevel) {
+        return
+      }
+      this.isAdvancingLevel = true
 
-    const nextIndex = this.currentLevelIndex + 1
-    this.applyLevel(nextIndex)
-    this.refreshSettingsPanel()
-    this.balls.clear(true, true)
-    
-    // FIX: Clear all triangles when advancing to new level
-    this.clearAllTriangles()
-    
-    this.spawnLevelWave(this.currentLevelIndex)
-    
-    // Unlock the next level
-    this.unlockLevel(nextIndex)
+      // Play level complete sound with error handling
+      try {
+        this.playSound('level-complete', 0.6)
+      } catch (err: unknown) {
+        console.warn('Error playing level complete sound:', err)
+      }
+
+      if (!this.isGameActive || !this.scene) {
+        this.isAdvancingLevel = false
+        return
+      }
+      
+      // End powerups (shield and slow motion) when transitioning to next level
+      // Use resetPowerUps to clean up everything including indicators and sounds
+      try {
+        this.resetPowerUps()
+      } catch (err: unknown) {
+        console.warn('Error resetting powerups:', err)
+      }
+      
+      // Check if we're at moon level (index 11) - transition to boss level
+      if (this.currentLevelIndex === 11 && !this.isBossLevel) {
+        try {
+          this.startBossLevel()
+        } catch (err: unknown) {
+          console.error('Error starting boss level:', err)
+        } finally {
+          this.isAdvancingLevel = false
+        }
+        return
+      }
+      
+      // If in boss level, handle boss phase progression
+      if (this.isBossLevel) {
+        try {
+          this.advanceBossPhase()
+        } catch (err: unknown) {
+          console.error('Error advancing boss phase:', err)
+        } finally {
+          this.isAdvancingLevel = false
+        }
+        return
+      }
+      
+      const lastLevelIndex = 11  // Moon is the last regular level
+      if (this.currentLevelIndex >= lastLevelIndex) {
+        try {
+          this.handleCampaignComplete()
+        } catch (err: unknown) {
+          console.error('Error handling campaign complete:', err)
+        } finally {
+          this.isAdvancingLevel = false
+        }
+        return
+      }
+
+      const nextIndex = this.currentLevelIndex + 1
+      try {
+        this.applyLevel(nextIndex)
+        this.refreshSettingsPanel()
+        if (this.balls) {
+          this.balls.clear(true, true)
+        }
+        
+        // FIX: Clear all triangles when advancing to new level
+        this.clearAllTriangles()
+        
+        this.spawnLevelWave(this.currentLevelIndex)
+        
+        // Unlock the next level
+        this.unlockLevel(nextIndex)
+      } catch (err: unknown) {
+        console.error('Error advancing level:', err)
+      } finally {
+        this.isAdvancingLevel = false
+      }
+    } catch (err: unknown) {
+      console.error('Fatal error in advanceLevel:', err)
+      this.isAdvancingLevel = false
+    }
   }
 
   private getBubbleDisplaySize(_textureKey: string, scale: number): number {

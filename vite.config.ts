@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { copyFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 export default defineConfig({
@@ -29,5 +29,24 @@ export default defineConfig({
       },
     },
   },
+  plugins: [
+    {
+      name: 'fix-favicon-paths',
+      closeBundle() {
+        if (process.env.NODE_ENV === 'production') {
+          const indexPath = join(process.cwd(), 'dist', 'index.html')
+          try {
+            let html = readFileSync(indexPath, 'utf-8')
+            // Replace relative favicon paths with absolute paths
+            html = html.replace(/href="\.\/bittee-logo/g, 'href="/boycott/bittee-logo')
+            html = html.replace(/href="\.\/manifest\.json"/g, 'href="/boycott/manifest.json"')
+            writeFileSync(indexPath, html, 'utf-8')
+          } catch (err) {
+            console.warn('Failed to fix favicon paths:', err)
+          }
+        }
+      },
+    },
+  ],
 })
 
