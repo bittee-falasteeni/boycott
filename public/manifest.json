@@ -1,0 +1,24 @@
+{
+  "name": "Bittee – Falasteeni",
+  "short_name": "Bittee",
+  "description": "Bittee – Falasteeni",
+  "start_url": "/boycott/",
+  "display": "standalone",
+  "background_color": "#1c231e",
+  "theme_color": "#1c231e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/boycott/bittee-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/boycott/bittee-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
