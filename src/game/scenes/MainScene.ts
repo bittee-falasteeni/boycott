@@ -10748,6 +10748,26 @@ export class MainScene extends Phaser.Scene {
           
           // Wait a moment for iOS to fully activate, then start game sounds
           setTimeout(() => {
+            // CRITICAL: Play a Phaser sound immediately to "wake up" Phaser's HTML5 Audio system
+            // This ensures iOS recognizes Phaser's audio as "media" and not just our keep-alive element
+            try {
+              const testSound = this.soundEffects.get('settings-sound')
+              if (testSound) {
+                // Play a very brief sound at very low volume to activate Phaser's audio system
+                testSound.play({ volume: 0.0001 }).then(() => {
+                  // Stop it immediately after it starts (we just needed it to activate)
+                  setTimeout(() => {
+                    testSound.stop()
+                    console.log('✓ Phaser audio system activated with test sound')
+                  }, 50)
+                }).catch(() => {
+                  // Ignore play errors
+                })
+              }
+            } catch (e) {
+              // Ignore errors
+            }
+            
             // Call callback to ensure game sounds start after activation
             if (onComplete) {
               console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
