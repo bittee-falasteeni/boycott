@@ -2,21 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Favicon for browser tab (PC) - Multiple formats for maximum compatibility -->
-    <!-- IMPORTANT: Order matters - put .ico first, then PNG, then SVG -->
-    <link rel="icon" type="image/x-icon" href="/boycott/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/boycott/bittee-logo2-192.png" />
+    <!-- Favicon MUST be first link after charset for Safari -->
+    <!-- Safari is picky - use PNG with proper type, not .ico for better compatibility -->
     <link rel="icon" type="image/png" sizes="32x32" href="/boycott/bittee-logo2-192.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/boycott/bittee-logo2-192.png" />
-    <link rel="icon" type="image/svg+xml" href="/boycott/bittee-logo2.svg" />
-    <!-- Legacy support -->
-    <link rel="shortcut icon" type="image/x-icon" href="/boycott/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/boycott/bittee-logo2-192.png" />
+    <link rel="icon" type="image/png" href="/boycott/bittee-logo2-192.png" />
     <link rel="shortcut icon" type="image/png" href="/boycott/bittee-logo2-192.png" />
+    <!-- SVG for modern browsers -->
+    <link rel="icon" type="image/svg+xml" href="/boycott/bittee-logo2.svg" />
+    <!-- Apple touch icons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/boycott/bittee-logo2-180.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/boycott/bittee-logo2-152.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/boycott/bittee-logo2-120.png" />
+    <link rel="apple-touch-icon" sizes="76x76" href="/boycott/bittee-logo2-76.png" />
+    <link rel="apple-touch-icon" sizes="60x60" href="/boycott/bittee-logo2-60.png" />
     <link rel="apple-touch-icon" href="/boycott/bittee-logo2-180.png" />
-    <!-- Favicon debugging -->
+    <!-- Favicon debugging - enhanced for Safari -->
     <script>
       (function() {
-        // Debug: Log favicon loading attempts
         console.log('[FAVICON DEBUG] Page loaded, checking favicon links...');
         const faviconLinks = document.querySelectorAll('link[rel*="icon"]');
         console.log('[FAVICON DEBUG] Found', faviconLinks.length, 'favicon link(s)');
@@ -24,41 +27,66 @@
           const href = link.getAttribute('href');
           const type = link.getAttribute('type');
           const sizes = link.getAttribute('sizes');
-          console.log(`[FAVICON DEBUG] Link ${i + 1}: href="${href}", type="${type}", sizes="${sizes}"`);
+          const rel = link.getAttribute('rel');
+          console.log(`[FAVICON DEBUG] Link ${i + 1}: rel="${rel}", href="${href}", type="${type}", sizes="${sizes}"`);
           
-          // Try to load the favicon to see if it's accessible
           const img = new Image();
           img.onload = () => {
-            console.log(`[FAVICON DEBUG] ✓ Successfully loaded favicon: ${href}`);
+            console.log(`[FAVICON DEBUG] ✓ Successfully loaded: ${href}`);
           };
           img.onerror = () => {
-            console.error(`[FAVICON DEBUG] ✗ Failed to load favicon: ${href}`);
+            console.error(`[FAVICON DEBUG] ✗ Failed to load: ${href}`);
           };
           if (href && !href.endsWith('.ico')) {
             img.src = href;
           }
         });
         
-        // Check if browser is using a cached favicon
-        const favicon = document.querySelector('link[rel*="icon"]');
-        if (favicon) {
-          const originalHref = favicon.getAttribute('href');
-          // Add timestamp to force reload
-          const newHref = originalHref + (originalHref.includes('?') ? '&' : '?') + 'v=' + Date.now();
-          console.log('[FAVICON DEBUG] Attempting to force reload favicon with cache buster:', newHref);
+        // Safari-specific: Try to force favicon update
+        // Remove all existing favicon links and add a fresh one
+        const existingFavicons = document.querySelectorAll('link[rel*="icon"]');
+        const primaryFavicon = existingFavicons[0];
+        if (primaryFavicon) {
+          const originalHref = primaryFavicon.getAttribute('href');
+          console.log('[FAVICON DEBUG] Safari fix: Removing all favicons and adding fresh one');
           
-          // Create new link element with cache buster
-          const newLink = document.createElement('link');
-          newLink.rel = 'icon';
-          newLink.type = favicon.getAttribute('type') || 'image/png';
-          newLink.href = newHref;
-          document.head.appendChild(newLink);
-          
-          // Remove old link after a moment
-          setTimeout(() => {
-            if (favicon.parentNode) {
-              favicon.parentNode.removeChild(favicon);
+          // Remove all favicon links
+          existingFavicons.forEach(link => {
+            if (link.parentNode) {
+              link.parentNode.removeChild(link);
             }
+          });
+          
+          // Wait a moment, then add a fresh favicon link at the very top
+          setTimeout(() => {
+            const newFavicon = document.createElement('link');
+            newFavicon.rel = 'icon';
+            newFavicon.type = 'image/png';
+            newFavicon.href = originalHref + '?v=' + Date.now();
+            document.head.insertBefore(newFavicon, document.head.firstChild);
+            console.log('[FAVICON DEBUG] Added fresh favicon link:', newFavicon.href);
+            
+            // Also try adding as data URL as fallback
+            setTimeout(() => {
+              fetch(originalHref)
+                .then(r => r.blob())
+                .then(blob => {
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const dataUrl = reader.result;
+                    const dataFavicon = document.createElement('link');
+                    dataFavicon.rel = 'icon';
+                    dataFavicon.type = 'image/png';
+                    dataFavicon.href = dataUrl;
+                    document.head.insertBefore(dataFavicon, document.head.firstChild);
+                    console.log('[FAVICON DEBUG] Added favicon as data URL (Safari workaround)');
+                  };
+                  reader.readAsDataURL(blob);
+                })
+                .catch(err => {
+                  console.warn('[FAVICON DEBUG] Could not create data URL favicon:', err);
+                });
+            }, 500);
           }, 100);
         }
       })();

@@ -4597,6 +4597,7 @@ export class MainScene extends Phaser.Scene {
         } else {
           // If settings panel is NOT visible, we should still return to settings (not exit to game)
           // This matches the behavior of info and field notes modals
+          console.log('[KEYBOARD] Cities modal closed - settings panel NOT visible')
           
           // If we're already paused for settings, just make the panel visible
           if (this.isPausedForSettings && this.settingsPanel) {
@@ -10859,7 +10860,6 @@ export class MainScene extends Phaser.Scene {
                 })
               }
               
-              console.log('✓ Background music started playing')
             } catch (err: unknown) {
               console.warn('Failed to play background music:', err)
               // Try again after a short delay
@@ -10932,7 +10932,6 @@ export class MainScene extends Phaser.Scene {
                 this.playNextMusicTrack()
               }
             })
-            console.log('✓ Track 2 started playing')
           }
         }
       })
@@ -10963,7 +10962,6 @@ export class MainScene extends Phaser.Scene {
                 this.playNextMusicTrack()
               }
             })
-            console.log('✓ Track 1 started playing (looped back)')
           }
         }
       })

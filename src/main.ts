@@ -112,7 +112,6 @@ const unlockAudioContext = (force: boolean = false) => {
     if (phaserSound.context) {
       if (phaserSound.context.state === 'suspended') {
         phaserSound.context.resume().then(() => {
-          console.log('Phaser audio context unlocked')
           audioContextUnlocked = true
         }).catch((err: unknown) => {
           console.warn('Failed to unlock Phaser audio context:', err)
