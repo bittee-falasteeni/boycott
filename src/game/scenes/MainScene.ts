@@ -10643,93 +10643,23 @@ export class MainScene extends Phaser.Scene {
   }
 
   private unlockAudioContext(): void {
-    // First, call the global unlock function if available
+    // Call the global unlock function if available
     const globalUnlock = (window as any).unlockAudioContext
     if (globalUnlock) {
-      globalUnlock(true) // Force unlock
+      globalUnlock(true)
     }
     
-    // Unlock Web Audio API context for mobile browsers
-    // This allows sound to play even when phone is on silent (uses media volume, not ringer volume)
-    // Web Audio API = media volume (works when silent), HTML5 Audio = ringer volume (doesn't work when silent)
+    // Resume Phaser's audio context if suspended
     try {
       const soundManager = this.sound as any
-      
-      // CRITICAL: Verify Phaser is using Web Audio API, not HTML5 Audio
-      // HTML5 Audio respects ringer switch, Web Audio API uses media volume
-      const isUsingWebAudio = soundManager && soundManager.context && soundManager.context instanceof (window.AudioContext || (window as any).webkitAudioContext)
-      const isUsingHTML5Audio = soundManager && soundManager.locked === false && !soundManager.context
-      
-      if (isUsingHTML5Audio) {
-        console.warn('Phaser is using HTML5 Audio (respects ringer switch). This may cause issues on silent mode.')
-        // Try to force Web Audio API by recreating the sound manager
-        // Note: This is a workaround - ideally Phaser should use Web Audio API
-      }
-      
-      if (isUsingWebAudio) {
-        console.log('Phaser is using Web Audio API (uses media volume - works when phone is silent)')
-      }
-      
-      // Force Phaser to use Web Audio API if it's not already
-      if (soundManager && !soundManager.context) {
-        // Try to create Web Audio context if Phaser hasn't created one yet
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
-        if (AudioContextClass) {
-          try {
-            const context = new AudioContextClass()
-            // Play a silent sound to wake up the audio system
-            const buffer = context.createBuffer(1, 1, 22050)
-            const source = context.createBufferSource()
-            source.buffer = buffer
-            source.connect(context.destination)
-            source.start(0)
-            source.stop(0.001)
-          } catch (e) {
-            // Silent sound failed, but continue
-          }
-        }
-      }
-      
       if (soundManager && soundManager.context) {
         const context = soundManager.context
         if (context.state === 'suspended') {
-          context.resume().then(() => {
-            console.log('Audio context unlocked - sound will work even when phone is on silent (media volume)')
-            
-            // Play a silent sound to ensure audio system is fully awake
-            try {
-              const buffer = context.createBuffer(1, 1, 22050)
-              const source = context.createBufferSource()
-              source.buffer = buffer
-              source.connect(context.destination)
-              source.start(0)
-              source.stop(0.001)
-            } catch (e) {
-              // Silent sound failed, but context is unlocked
-            }
-          }).catch((err: unknown) => {
-            console.warn('Failed to unlock audio context:', err)
-          })
-        } else if (context.state === 'running') {
-          console.log('Audio context already running (using media volume)')
-        }
-      }
-      
-      // Also try to unlock any individual sound instances
-      if (this.backgroundMusic1) {
-        const bg1 = this.backgroundMusic1 as any
-        if (bg1.context && bg1.context.state === 'suspended') {
-          bg1.context.resume().catch(() => {})
-        }
-      }
-      if (this.backgroundMusic2) {
-        const bg2 = this.backgroundMusic2 as any
-        if (bg2.context && bg2.context.state === 'suspended') {
-          bg2.context.resume().catch(() => {})
+          context.resume().catch(() => {})
         }
       }
     } catch (err: unknown) {
-      console.warn('Audio unlock error:', err)
+      // Ignore errors
     }
   }
   
