@@ -8976,7 +8976,6 @@ export class MainScene extends Phaser.Scene {
           this.backgroundMusic2.stop()
         }
         
-        // Music will be started by activateAudioSystem callback after iOS activation
         // This ensures music starts AFTER iOS switches to media volume
       }
     }
