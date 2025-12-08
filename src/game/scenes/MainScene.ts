@@ -10721,6 +10721,17 @@ export class MainScene extends Phaser.Scene {
       html5Audio.loop = true // Loop continuously to maintain media volume mode
       html5Audio.preload = 'auto'
       
+      // Handle audio ended event - restart if it stops (shouldn't happen with loop, but safety)
+      html5Audio.addEventListener('ended', () => {
+        if (this.iosAudioKeepAlive === html5Audio) {
+          // Restart if it somehow ended (loop should prevent this)
+          html5Audio.currentTime = 0
+          html5Audio.play().catch(() => {
+            // Ignore play errors
+          })
+        }
+      })
+      
       // Store reference so we can clean up later if needed
       this.iosAudioKeepAlive = html5Audio
       
