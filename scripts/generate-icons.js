@@ -20,17 +20,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const publicDir = path.join(rootDir, 'public');
-const svgPath = path.join(publicDir, 'bittee-logo.svg');
+const svgPath = path.join(publicDir, 'bittee-logo1.svg');
 
 // Sizes needed for iOS and Android
 const iconSizes = [
-  { size: 60, name: 'bittee-logo-60.png' },   // iOS iPhone
-  { size: 76, name: 'bittee-logo-76.png' },   // iOS iPad
-  { size: 120, name: 'bittee-logo-120.png' }, // iOS iPhone
-  { size: 152, name: 'bittee-logo-152.png' }, // iOS iPad
-  { size: 180, name: 'bittee-logo-180.png' }, // iOS iPhone (required)
-  { size: 192, name: 'bittee-logo-192.png' }, // Android
-  { size: 512, name: 'bittee-logo-512.png' }, // Android (required)
+  { size: 60, name: 'bittee-logo1-60.png' },   // iOS iPhone
+  { size: 76, name: 'bittee-logo1-76.png' },   // iOS iPad
+  { size: 120, name: 'bittee-logo1-120.png' }, // iOS iPhone
+  { size: 152, name: 'bittee-logo1-152.png' }, // iOS iPad
+  { size: 180, name: 'bittee-logo1-180.png' }, // iOS iPhone (required)
+  { size: 192, name: 'bittee-logo1-192.png' }, // Android
+  { size: 512, name: 'bittee-logo1-512.png' }, // Android (required)
 ];
 
 async function generateIcons() {
