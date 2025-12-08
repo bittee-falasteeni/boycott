@@ -10748,18 +10748,30 @@ export class MainScene extends Phaser.Scene {
     // iOS stays in "pending" state until a real HTML5 media element plays.
     // This is why YouTube video triggers audio in other tabs - it uses HTML5 video.
     
-    // Create and play an HTML5 audio element to fully activate iOS audio system
+    // CRITICAL: Play the ACTUAL background music file through HTML5 audio first
+    // This ensures iOS recognizes it as "media" - then Phaser can take over
+    // Just playing a test sound might not be enough - we need to play actual game audio
     try {
       // Get the base URL from Phaser config
       const baseURL = this.load.baseURL || (import.meta.env.DEV ? '/' : '/boycott/')
-      const audioPath = `${baseURL}assets/audio/settings-sound.webm`
+      
+      // Try to use the actual background music file if available, otherwise use settings sound
+      const backgroundMusicPath = `${baseURL}assets/audio/bittee-mawtini1.webm`
+      const fallbackPath = `${baseURL}assets/audio/settings-sound.webm`
       
       // Create HTML5 audio element (not Web Audio API)
       // This is what iOS Safari needs to fully activate audio for ALL tabs
       const html5Audio = document.createElement('audio')
-      html5Audio.src = audioPath
+      html5Audio.src = backgroundMusicPath
       html5Audio.volume = 0.01 // Very quiet so user doesn't hear it
       html5Audio.preload = 'auto'
+      
+      // If background music fails to load, try fallback
+      html5Audio.addEventListener('error', () => {
+        console.warn('Background music HTML5 audio failed, trying fallback...')
+        html5Audio.src = fallbackPath
+        html5Audio.load()
+      })
       
       // Play and immediately pause to activate audio system
       const playPromise = html5Audio.play()
