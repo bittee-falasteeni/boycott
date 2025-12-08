@@ -8966,8 +8966,7 @@ export class MainScene extends Phaser.Scene {
           }
         }
       } else {
-        // New game start: Don't start music here - wait for iOS HTML5 audio activation
-        // The activateAudioSystem callback will start the music after iOS is activated
+        // New game start: Start background music
         // Stop any existing music first
         if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
           this.backgroundMusic1.stop()
@@ -8976,7 +8975,8 @@ export class MainScene extends Phaser.Scene {
           this.backgroundMusic2.stop()
         }
         
-        // This ensures music starts AFTER iOS switches to media volume
+        // Start fresh
+        this.startBackgroundMusic(true)
       }
     }
 
