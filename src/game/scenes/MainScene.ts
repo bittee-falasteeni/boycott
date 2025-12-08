@@ -10784,31 +10784,48 @@ export class MainScene extends Phaser.Scene {
                 console.log('✓ Background music system ready')
               }
               
-              // Activate sound effects by playing a test sound
-              const testSound = this.soundEffects.get('settings-sound')
-              if (testSound) {
-                // Play a very brief sound at very low volume to activate Phaser's sound effects system
-                // Note: Phaser's play() might return Promise or boolean - handle both
-                const playResult = testSound.play({ volume: 0.0001 })
-                if (playResult && typeof playResult === 'object' && 'then' in playResult) {
-                  (playResult as Promise<void>).then(() => {
-                    // Stop it immediately after it starts (we just needed it to activate)
-                    setTimeout(() => {
-                      testSound.stop()
-                      console.log('✓ Phaser sound effects system activated')
-                    }, 50)
-                  }).catch(() => {
-                    // Ignore play errors
-                  })
-                } else {
-                  // play() returned boolean or nothing - sound might be playing
-                  setTimeout(() => {
-                    testSound.stop()
-                    console.log('✓ Phaser sound effects system activated')
-                  }, 50)
+              // Activate sound effects by playing multiple test sounds
+              // This ensures all sound effect types are "woken up" for iOS
+              const testSounds = ['settings-sound', 'ball-bounce', 'throw-sound1']
+              let activatedCount = 0
+              
+              testSounds.forEach((soundKey) => {
+                const testSound = this.soundEffects.get(soundKey)
+                if (testSound) {
+                  try {
+                    // Play a very brief sound at very low volume to activate Phaser's sound effects system
+                    const playResult = testSound.play({ volume: 0.0001 })
+                    if (playResult && typeof playResult === 'object' && 'then' in playResult) {
+                      (playResult as Promise<void>).then(() => {
+                        // Stop it immediately after it starts (we just needed it to activate)
+                        setTimeout(() => {
+                          testSound.stop()
+                          activatedCount++
+                          if (activatedCount === testSounds.length) {
+                            console.log('✓ Phaser sound effects system activated (all test sounds played)')
+                          }
+                        }, 50)
+                      }).catch(() => {
+                        // Ignore play errors
+                      })
+                    } else {
+                      // play() returned boolean or nothing - sound might be playing
+                      setTimeout(() => {
+                        testSound.stop()
+                        activatedCount++
+                        if (activatedCount === testSounds.length) {
+                          console.log('✓ Phaser sound effects system activated (all test sounds played)')
+                        }
+                      }, 50)
+                    }
+                  } catch (e) {
+                    // Ignore individual sound errors
+                  }
                 }
-              } else {
-                console.warn('Test sound not found - sound effects may not activate')
+              })
+              
+              if (testSounds.every(key => !this.soundEffects.get(key))) {
+                console.warn('No test sounds found - sound effects may not activate')
               }
             } catch (e) {
               console.warn('Error activating Phaser audio systems:', e)
