@@ -42,11 +42,8 @@ export default defineConfig({
             html = html.replace(/href="\.\/favicon\.ico/g, 'href="/boycott/favicon.ico')
             html = html.replace(/href="\.\/manifest\.json"/g, 'href="/boycott/manifest.json"')
             
-            // Don't inject duplicate debug script - it's already in source HTML
-            // Just ensure paths are correct
-            
             writeFileSync(indexPath, html, 'utf-8')
-            console.log('[BUILD] Fixed favicon paths and added debugging in index.html')
+            console.log('[BUILD] Fixed favicon paths in index.html')
           } catch (err) {
             console.warn('[BUILD] Failed to fix favicon paths:', err)
           }
