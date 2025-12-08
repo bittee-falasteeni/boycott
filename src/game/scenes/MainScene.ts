@@ -10718,10 +10718,12 @@ export class MainScene extends Phaser.Scene {
       // Create HTML5 audio element that will play continuously
       const html5Audio = document.createElement('audio')
       html5Audio.src = keepAliveSoundPath
-      html5Audio.volume = 0.0001 // Even quieter - should be completely inaudible
+      // CRITICAL: iOS might ignore muted audio elements, so don't mute
+      // Use very low volume instead (0.001 is barely audible but iOS recognizes it as "playing")
+      html5Audio.volume = 0.001 // Very quiet - should be inaudible in game context
       html5Audio.loop = true // Loop continuously to maintain media volume mode
       html5Audio.preload = 'auto'
-      html5Audio.setAttribute('muted', 'true') // Also mute it as extra safety
+      // Don't mute - iOS might not recognize muted audio as "active media"
       
       // Handle audio ended event - restart if it stops (shouldn't happen with loop, but safety)
       html5Audio.addEventListener('ended', () => {
