@@ -8851,15 +8851,21 @@ export class MainScene extends Phaser.Scene {
     // This forces the audio system to use media volume instead of ringer volume
     // Pass a callback to start game sounds after activation completes
     this.activateAudioSystem(() => {
-      // After HTML5 audio activates iOS, ensure game sounds are playing
+      // After HTML5 audio activates iOS (waits 800ms for iOS to switch to media volume), ensure game sounds are playing
       if (!this.isBossLevel) {
-        // Double-check music is actually playing
-        const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
-        const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
-        if (!track1Playing && !track2Playing) {
-          // Music didn't start - force it to start now
-          this.startBackgroundMusic(true)
-        }
+        // Wait a bit more to ensure iOS has fully switched to media volume
+        this.time.delayedCall(100, () => {
+          // Double-check music is actually playing
+          const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
+          const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
+          if (!track1Playing && !track2Playing) {
+            // Music didn't start - force it to start now
+            console.log('Forcing background music to start after iOS activation...')
+            this.startBackgroundMusic(true)
+          } else {
+            console.log('Background music is already playing after iOS activation')
+          }
+        })
       }
     })
 
