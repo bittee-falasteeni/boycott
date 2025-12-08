@@ -10595,61 +10595,6 @@ export class MainScene extends Phaser.Scene {
     // HTML5 Audio uses media volume on iOS (works when phone is silent, like YouTube)
     // No need to verify Web Audio API usage since we're using HTML5 Audio
   }
-  
-  private verifyWebAudioUsage(): void {
-    // Check if Phaser sound manager is using Web Audio API
-    const soundManager = this.sound as any
-    const hasWebAudioContext = soundManager && soundManager.context && 
-      (soundManager.context instanceof window.AudioContext || soundManager.context instanceof (window as any).webkitAudioContext)
-    
-    if (!hasWebAudioContext) {
-      console.warn('WARNING: Phaser may be using HTML5 Audio instead of Web Audio API.')
-      console.warn('HTML5 Audio respects ringer switch - sound won\'t play when phone is on silent.')
-      console.warn('Web Audio API uses media volume - sound will play even when phone is on silent.')
-    } else {
-      console.log('✓ Phaser is using Web Audio API (media volume - works when phone is silent)')
-      
-      // iOS Safari workaround: Even with Web Audio API, iOS can still respect ringer switch
-      // We need to ensure the audio context is actively playing sound to "wake it up"
-      // Play a very brief silent sound to activate the audio system
-      try {
-        const context = soundManager.context
-        if (context && context.state === 'running') {
-          // Create and play a very brief silent sound to ensure audio system is active
-          const buffer = context.createBuffer(1, context.sampleRate * 0.1, context.sampleRate) // 0.1 second
-          const source = context.createBufferSource()
-          source.buffer = buffer
-          source.connect(context.destination)
-          source.start(0)
-          source.stop(0.1)
-          console.log('✓ Audio system activated with test sound (iOS workaround)')
-        }
-      } catch (e) {
-        console.warn('Failed to activate audio system:', e)
-      }
-    }
-    
-    // Verify individual sound instances are using Web Audio API
-    let html5AudioCount = 0
-    let webAudioCount = 0
-    
-    // Check background music
-    if (this.backgroundMusic1) {
-      const bg1 = this.backgroundMusic1 as any
-      if (bg1.buffer || bg1.source) {
-        webAudioCount++
-      } else if (bg1.audio || bg1.media) {
-        html5AudioCount++
-      }
-    }
-    
-    if (html5AudioCount > 0) {
-      console.warn(`⚠️ Found ${html5AudioCount} sound(s) using HTML5 Audio (may not work when silent)`)
-    }
-    if (webAudioCount > 0) {
-      console.log(`✓ Found ${webAudioCount} sound(s) using Web Audio API`)
-    }
-  }
 
   private unlockAudioContext(): void {
     // First, call the global unlock function if available
