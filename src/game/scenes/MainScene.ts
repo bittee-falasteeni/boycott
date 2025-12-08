@@ -377,12 +377,33 @@ function generateBrandAssignments(levelIndex: number, usedBrands: Set<string>, p
     }
   }
   
+  // Exclude specific brands from mini balls: nestle, disney (disneyplus), intel, puma, zara
+  const excludedMiniBrands = ['nestle', 'disneyplus', 'intel', 'puma', 'zara']  // disneyplus is the actual brand name in TECH_BRANDS
+  let miniBrand = selected[3]
+  
+  // If the selected mini brand is excluded, find an alternative
+  if (excludedMiniBrands.includes(miniBrand)) {
+    const availableForMini = brandsToUse.filter(b => 
+      !excludedMiniBrands.includes(b) && 
+      !selected.slice(0, 3).includes(b)  // Don't use brands already assigned to large/medium/small
+    )
+    if (availableForMini.length > 0) {
+      miniBrand = availableForMini[0]
+    } else {
+      // Fallback: use any brand that's not excluded
+      const fallbackBrands = availableBrands.filter(b => !excludedMiniBrands.includes(b))
+      if (fallbackBrands.length > 0) {
+        miniBrand = fallbackBrands[0]
+      }
+    }
+  }
+  
   // Return as [large, medium, small, mini] format
   return [
     `ball-large-${selected[0]}`,
     `ball-medium-${selected[1]}`,
     `ball-small-${selected[2]}`,
-    `ball-mini-${selected[3]}`,
+    `ball-mini-${miniBrand}`,
   ]
 }
 
@@ -815,7 +836,7 @@ export class MainScene extends Phaser.Scene {
             this.levelButtons = []
             this.currentlyPressedCity = null
           }
-          // Close boycotted modal
+          // Close boycotted modal - destroy all objects with isBoycottedModal flag
           const boycottedObjects = this.children.list.filter((child) => {
             return child && (child as any).getData && (child as any).getData('isBoycottedModal') === true
           })
@@ -824,9 +845,19 @@ export class MainScene extends Phaser.Scene {
               obj.destroy()
             }
           })
+          // Also destroy any description tooltips
           this.children.list.forEach((child) => {
             if (child instanceof Phaser.GameObjects.Container && child.getData('isBrandDescription')) {
               child.destroy()
+            }
+          })
+          // Double-check: destroy any remaining graphics or text objects that might be part of the modal
+          // This ensures the return button shadow and all other elements are cleaned up
+          this.children.list.forEach((child) => {
+            if (child && (child as any).getData && (child as any).getData('isBoycottedModal') === true) {
+              if (child && child.scene) {
+                child.destroy()
+              }
             }
           })
           // Remove keyboard handlers
@@ -2864,6 +2895,13 @@ export class MainScene extends Phaser.Scene {
     this.playSound('configure-sound', 1.0)
     this.pauseBackgroundMusic()
     
+    // Pause all powerup sounds when opening settings
+    // Pause time sounds (slow motion powerup)
+    this.timeSoundInstances.forEach(instance => {
+      if (instance && instance.isPlaying) {
+        instance.pause()
+      }
+    })
     // Pause shield sound if shield is active
     if (this.shieldBubble && this.shieldBubble.active) {
       const shieldSound = this.soundEffects.get('shield-sound')
@@ -2956,6 +2994,13 @@ export class MainScene extends Phaser.Scene {
     }
     this.resumeBackgroundMusic()
     
+    // Resume all powerup sounds when closing settings
+    // Resume time sounds (slow motion powerup)
+    this.timeSoundInstances.forEach(instance => {
+      if (instance && instance.isPaused) {
+        instance.resume()
+      }
+    })
     // Resume shield sound if shield is active
     if (this.shieldBubble && this.shieldBubble.active) {
       const shieldSound = this.soundEffects.get('shield-sound')
@@ -3384,6 +3429,7 @@ export class MainScene extends Phaser.Scene {
     returnButtonShadow.fillRoundedRect(-returnButtonWidth / 2, -returnButtonHeight / 2 - returnShadowYOffset, returnButtonWidth, returnButtonHeight, returnButtonRadius)
     returnButtonShadow.setPosition(worldWidth / 2, returnButtonY)
     returnButtonShadow.setDepth(249)  // Behind button
+    returnButtonShadow.setData('isBoycottedModal', true)  // Ensure shadow is marked for cleanup
     
     const closeButton = this.add
       .text(worldWidth / 2, returnButtonY, 'Return', {
@@ -5927,7 +5973,7 @@ export class MainScene extends Phaser.Scene {
       case 'time':
         // Activate slow motion
         this.activateSlowMotion()
-        this.showPowerUpIndicator('Slow Motion', 5000)
+        this.showPowerUpIndicator('Slow Motion', 3000)  // Match actual slow motion duration (3 seconds)
         break
     }
   }
@@ -6136,7 +6182,7 @@ export class MainScene extends Phaser.Scene {
     const playerCenterY = this.player.y - (this.player.displayHeight / 2)
     this.shieldBubble = this.add.image(this.player.x, playerCenterY, shieldBubbleKey)
     this.shieldBubble.setScale(1.3)  // A bit smaller than before
-    this.shieldBubble.setAlpha(0.8)  // More visible
+    this.shieldBubble.setAlpha(0.95)  // Less transparent (was 0.8)
     this.shieldBubble.setDepth(11)  // On top of player (player is depth 10)
     this.shieldBubble.setOrigin(0.5, 0.5)  // Ensure it's centered on Bittee
     
@@ -6316,6 +6362,18 @@ export class MainScene extends Phaser.Scene {
   }
 
   private resetPowerUps(): void {
+    // Stop all powerup sounds
+    this.timeSoundInstances.forEach(instance => {
+      if (instance && instance.isPlaying) {
+        instance.stop()
+      }
+    })
+    this.timeSoundInstances = []
+    const shieldSound = this.soundEffects.get('shield-sound')
+    if (shieldSound && shieldSound instanceof Phaser.Sound.BaseSound && shieldSound.isPlaying) {
+      shieldSound.stop()
+    }
+    
     // Reset slow motion
     if (this.slowMotionTimer) {
       this.slowMotionTimer.remove(false)
@@ -7385,16 +7443,27 @@ export class MainScene extends Phaser.Scene {
 
       // FIX: Switch order - About Bittee first, then Controls
       const aboutTitle = this.add.text(-panelWidth / 2 + 32, -panelHeight / 2 + 140, 'About Bittee', {
-        fontSize: '28px',  // Larger
+        fontSize: '32px',  // Larger (was 28px)
         fontFamily: 'MontserratBold',
         color: '#d7ddcc',  // Match theme color
       })
 
-      // FIX: New About Bittee text with orange-ish red color, comment out original
-      const aboutBody = this.add.text(-panelWidth / 2 + 32, aboutTitle.y + 40,  // Added more space (from 32 to 40)
-        'Bittee boycotts and fights for justice and liberation. Learn from Bittee.',
+      // FIX: New About Bittee text - first sentence same color as FREE FALASTEEN
+      const aboutBodyFirst = this.add.text(-panelWidth / 2 + 32, aboutTitle.y + 40,  // Added more space (from 32 to 40)
+        'Bittee boycotts and fights for justice and liberation.',
         {
-          fontSize: '24px',  // Larger
+          fontSize: '28px',  // Larger (was 24px)
+          fontFamily: 'Montserrat',
+          color: '#c3d4a5',  // Same color as FREE FALASTEEN
+          wordWrap: { width: panelWidth - 64 },
+          lineSpacing: 6,  // Add spacing between lines
+        },
+      )
+      
+      const aboutBodySecond = this.add.text(-panelWidth / 2 + 32, aboutBodyFirst.y + aboutBodyFirst.height + 6,
+        'Learn from Bittee.',
+        {
+          fontSize: '30px',  // Slightly larger than first sentence (was 28px)
           fontFamily: 'Montserrat',
           color: '#8b2a00',  // Orange-ish red same as info modal bottom sentence
           wordWrap: { width: panelWidth - 64 },
@@ -7406,7 +7475,7 @@ export class MainScene extends Phaser.Scene {
       // 'Bittee stands in solidarity with the Palestinian call for freedom and dignity. Inspired by Handala and the spirit of BDS, our camp uses joyful resistance to celebrate steadfastness, refuse erasure, and imagine a liberated future.',
 
       // Create Controls subtitle and text separately - larger and nicer
-      const controlsTitle = this.add.text(-panelWidth / 2 + 32, aboutBody.y + aboutBody.height + 40, 'Controls:', {
+      const controlsTitle = this.add.text(-panelWidth / 2 + 32, aboutBodySecond.y + aboutBodySecond.height + 40, 'Controls:', {
         fontSize: '28px',  // Larger
         fontFamily: 'MontserratBold',
         color: '#d7ddcc',  // Match theme color
@@ -7460,7 +7529,7 @@ export class MainScene extends Phaser.Scene {
         keyboard.on('keydown-SPACE', closeHandler)
       }
 
-      panel.add([background, title, aboutTitle, aboutBody, controlsTitle, controls, closeButtonShadow, closeButton])
+      panel.add([background, title, aboutTitle, aboutBodyFirst, aboutBodySecond, controlsTitle, controls, closeButtonShadow, closeButton])
       this.instructionsPanel = panel
     }
 
@@ -8777,35 +8846,39 @@ export class MainScene extends Phaser.Scene {
     // FIX: Start background music when game starts (but not during boss level)
     // When respawning, continue existing music instead of restarting
     if (!this.isBossLevel) {
-      // Check if music is already playing
-      const track1Playing = this.backgroundMusic1 && (this.backgroundMusic1.isPlaying || !this.backgroundMusic1.isPaused)
-      const track2Playing = this.backgroundMusic2 && (this.backgroundMusic2.isPlaying || !this.backgroundMusic2.isPaused)
+      // Check if music is already playing - check isPlaying first to avoid starting over existing track
+      const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
+      const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
       
       if (respawnOnCurrentLevel) {
         // Respawn: Resume music if paused, or start if not playing
-        if (track1Playing) {
-          this.currentMusicTrack = 1
-          // Ensure it's actually playing (resume if paused, start if stopped)
-          if (this.backgroundMusic1) {
-            if (this.backgroundMusic1.isPaused) {
-              this.backgroundMusic1.resume()
-            } else if (!this.backgroundMusic1.isPlaying) {
-              this.backgroundMusic1.play()
-            }
-          }
-        } else if (track2Playing) {
+        // IMPORTANT: Check track2 first to prevent track1 from starting over track2
+        if (track2Playing) {
           this.currentMusicTrack = 2
-          // Ensure it's actually playing (resume if paused, start if stopped)
-          if (this.backgroundMusic2) {
-            if (this.backgroundMusic2.isPaused) {
-              this.backgroundMusic2.resume()
-            } else if (!this.backgroundMusic2.isPlaying) {
-              this.backgroundMusic2.play()
-            }
+          // Track 2 is already playing - don't touch it
+          // Only resume if paused
+          if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+            this.backgroundMusic2.resume()
+          }
+        } else if (track1Playing) {
+          this.currentMusicTrack = 1
+          // Track 1 is already playing - don't touch it
+          // Only resume if paused
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+            this.backgroundMusic1.resume()
           }
         } else {
-          // No music playing - start it (shouldn't happen on respawn, but handle it)
-          this.startBackgroundMusic(false)
+          // No music playing - check if paused and resume, or start fresh
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+            this.currentMusicTrack = 1
+            this.backgroundMusic1.resume()
+          } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+            this.currentMusicTrack = 2
+            this.backgroundMusic2.resume()
+          } else {
+            // No music at all - start it
+            this.startBackgroundMusic(false)
+          }
         }
       } else {
         // New game start: Force music to actually play - even if it thinks it's playing, it might not be audible
