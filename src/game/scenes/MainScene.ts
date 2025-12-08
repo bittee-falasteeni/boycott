@@ -8845,6 +8845,13 @@ export class MainScene extends Phaser.Scene {
     if (this.sound) {
       this.sound.setMute(false)
     }
+    
+    // iOS Safari workaround: Play a real sound to "wake up" the audio system
+    // Even with Web Audio API, iOS can respect ringer switch until a real sound plays
+    // This forces the audio system to use media volume instead of ringer volume
+    setTimeout(() => {
+      this.activateAudioSystem()
+    }, 100)
 
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
@@ -10583,6 +10590,46 @@ export class MainScene extends Phaser.Scene {
       console.warn('Web Audio API uses media volume - sound will play even when phone is on silent.')
     } else {
       console.log('✓ Phaser is using Web Audio API (media volume - works when phone is silent)')
+      
+      // iOS Safari workaround: Even with Web Audio API, iOS can still respect ringer switch
+      // We need to ensure the audio context is actively playing sound to "wake it up"
+      // Play a very brief silent sound to activate the audio system
+      try {
+        const context = soundManager.context
+        if (context && context.state === 'running') {
+          // Create and play a very brief silent sound to ensure audio system is active
+          const buffer = context.createBuffer(1, context.sampleRate * 0.1, context.sampleRate) // 0.1 second
+          const source = context.createBufferSource()
+          source.buffer = buffer
+          source.connect(context.destination)
+          source.start(0)
+          source.stop(0.1)
+          console.log('✓ Audio system activated with test sound (iOS workaround)')
+        }
+      } catch (e) {
+        console.warn('Failed to activate audio system:', e)
+      }
+    }
+    
+    // Verify individual sound instances are using Web Audio API
+    let html5AudioCount = 0
+    let webAudioCount = 0
+    
+    // Check background music
+    if (this.backgroundMusic1) {
+      const bg1 = this.backgroundMusic1 as any
+      if (bg1.buffer || bg1.source) {
+        webAudioCount++
+      } else if (bg1.audio || bg1.media) {
+        html5AudioCount++
+      }
+    }
+    
+    if (html5AudioCount > 0) {
+      console.warn(`⚠️ Found ${html5AudioCount} sound(s) using HTML5 Audio (may not work when silent)`)
+    }
+    if (webAudioCount > 0) {
+      console.log(`✓ Found ${webAudioCount} sound(s) using Web Audio API`)
     }
   }
 
@@ -10674,6 +10721,55 @@ export class MainScene extends Phaser.Scene {
       }
     } catch (err: unknown) {
       console.warn('Audio unlock error:', err)
+    }
+  }
+  
+  private activateAudioSystem(): void {
+    // iOS Safari workaround: Play a real sound to "wake up" the audio system
+    // Even with Web Audio API, iOS can respect ringer switch until a real sound plays
+    // This forces the audio system to use media volume instead of ringer volume
+    try {
+      const soundManager = this.sound as any
+      if (soundManager && soundManager.context) {
+        const context = soundManager.context
+        
+        // Play a very brief real sound through Web Audio API to activate the system
+        // This is critical for iOS - the audio system needs to "hear" actual audio
+        // to switch from ringer volume to media volume
+        if (context.state === 'running') {
+          // Try to play a test sound effect if available
+          const testSound = this.soundEffects.get('settings-sound')
+          if (testSound) {
+            // Play at very low volume so user doesn't hear it
+            const originalVolume = (testSound as any).volume || 1.0
+            testSound.setVolume(0.01)
+            testSound.play()
+            // Restore volume immediately
+            setTimeout(() => {
+              testSound.setVolume(originalVolume)
+              testSound.stop()
+            }, 50)
+            console.log('✓ Audio system activated with test sound (iOS media volume workaround)')
+          } else {
+            // Fallback: create a brief tone
+            try {
+              const oscillator = context.createOscillator()
+              const gainNode = context.createGain()
+              oscillator.connect(gainNode)
+              gainNode.connect(context.destination)
+              gainNode.gain.value = 0.001 // Very quiet
+              oscillator.frequency.value = 200
+              oscillator.start(0)
+              oscillator.stop(0.01)
+              console.log('✓ Audio system activated with oscillator (iOS media volume workaround)')
+            } catch (e) {
+              console.warn('Failed to activate audio with oscillator:', e)
+            }
+          }
+        }
+      }
+    } catch (err: unknown) {
+      console.warn('Audio activation error:', err)
     }
   }
 
