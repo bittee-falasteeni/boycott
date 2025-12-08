@@ -10725,17 +10725,46 @@ export class MainScene extends Phaser.Scene {
   }
   
   private activateAudioSystem(): void {
-    // iOS Safari workaround: Play a real sound to "wake up" the audio system
-    // Even with Web Audio API, iOS can respect ringer switch until a real sound plays
-    // This forces the audio system to use media volume instead of ringer volume
+    // iOS Safari CRITICAL workaround: iOS requires an HTML5 audio/video element to play
+    // before it fully activates audio for ALL tabs. Even with Web Audio API unlocked,
+    // iOS stays in "pending" state until a real HTML5 media element plays.
+    // This is why YouTube video triggers audio in other tabs - it uses HTML5 video.
+    
+    // Create and play an HTML5 audio element to fully activate iOS audio system
     try {
+      // Get the base URL from Phaser config
+      const baseURL = this.load.baseURL || (import.meta.env.DEV ? '/' : '/boycott/')
+      const audioPath = `${baseURL}assets/audio/settings-sound.webm`
+      
+      // Create HTML5 audio element (not Web Audio API)
+      // This is what iOS Safari needs to fully activate audio for ALL tabs
+      const html5Audio = document.createElement('audio')
+      html5Audio.src = audioPath
+      html5Audio.volume = 0.01 // Very quiet so user doesn't hear it
+      html5Audio.preload = 'auto'
+      
+      // Play and immediately pause to activate audio system
+      const playPromise = html5Audio.play()
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          // Audio started playing - this activates iOS audio system for ALL tabs
+          setTimeout(() => {
+            html5Audio.pause()
+            html5Audio.currentTime = 0
+            html5Audio.remove() // Clean up
+          }, 100)
+          console.log('✓ iOS audio system activated with HTML5 audio element (media volume - works for all tabs)')
+        }).catch((err: unknown) => {
+          console.warn('HTML5 audio play failed (may need user interaction):', err)
+          html5Audio.remove()
+        })
+      }
+      
+      // Also try Web Audio API activation as backup
       const soundManager = this.sound as any
       if (soundManager && soundManager.context) {
         const context = soundManager.context
         
-        // Play a very brief real sound through Web Audio API to activate the system
-        // This is critical for iOS - the audio system needs to "hear" actual audio
-        // to switch from ringer volume to media volume
         if (context.state === 'running') {
           // Try to play a test sound effect if available
           const testSound = this.soundEffects.get('settings-sound')
