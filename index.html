@@ -42,53 +42,86 @@
           }
         });
         
-        // Safari-specific: Try to force favicon update
-        // Remove all existing favicon links and add a fresh one
+        // Safari-specific: Aggressively force favicon update
+        // Safari caches favicons very aggressively, so we need multiple strategies
         const existingFavicons = document.querySelectorAll('link[rel*="icon"]');
         const primaryFavicon = existingFavicons[0];
         if (primaryFavicon) {
           const originalHref = primaryFavicon.getAttribute('href');
-          console.log('[FAVICON DEBUG] Safari fix: Removing all favicons and adding fresh one');
+          console.log('[FAVICON DEBUG] Safari fix: Attempting multiple cache-busting strategies');
           
-          // Remove all favicon links
+          // Strategy 1: Remove all favicons and add fresh one with cache buster
           existingFavicons.forEach(link => {
             if (link.parentNode) {
               link.parentNode.removeChild(link);
             }
           });
           
-          // Wait a moment, then add a fresh favicon link at the very top
+          // Strategy 2: Add multiple fresh favicon links with different cache busters
           setTimeout(() => {
-            const newFavicon = document.createElement('link');
-            newFavicon.rel = 'icon';
-            newFavicon.type = 'image/png';
-            newFavicon.href = originalHref + '?v=' + Date.now();
-            document.head.insertBefore(newFavicon, document.head.firstChild);
-            console.log('[FAVICON DEBUG] Added fresh favicon link:', newFavicon.href);
+            // Add primary favicon with timestamp
+            const newFavicon1 = document.createElement('link');
+            newFavicon1.rel = 'icon';
+            newFavicon1.type = 'image/png';
+            newFavicon1.href = originalHref + '?v=' + Date.now();
+            document.head.insertBefore(newFavicon1, document.head.firstChild);
+            console.log('[FAVICON DEBUG] Strategy 1: Added favicon with timestamp:', newFavicon1.href);
             
-            // Also try adding as data URL as fallback
-            setTimeout(() => {
-              fetch(originalHref)
-                .then(r => r.blob())
-                .then(blob => {
+            // Strategy 3: Try data URL (Safari sometimes accepts this when normal links fail)
+            fetch(originalHref + '?nocache=' + Date.now())
+              .then(r => {
+                if (!r.ok) throw new Error('Fetch failed');
+                return r.blob();
+              })
+              .then(blob => {
+                return new Promise((resolve) => {
                   const reader = new FileReader();
-                  reader.onload = () => {
-                    const dataUrl = reader.result;
-                    const dataFavicon = document.createElement('link');
-                    dataFavicon.rel = 'icon';
-                    dataFavicon.type = 'image/png';
-                    dataFavicon.href = dataUrl;
-                    document.head.insertBefore(dataFavicon, document.head.firstChild);
-                    console.log('[FAVICON DEBUG] Added favicon as data URL (Safari workaround)');
-                  };
+                  reader.onload = () => resolve(reader.result);
+                  reader.onerror = () => resolve(null);
                   reader.readAsDataURL(blob);
-                })
-                .catch(err => {
-                  console.warn('[FAVICON DEBUG] Could not create data URL favicon:', err);
                 });
-            }, 500);
-          }, 100);
+              })
+              .then(dataUrl => {
+                if (dataUrl) {
+                  // Remove any existing data URL favicon
+                  const existingDataFavicons = document.querySelectorAll('link[href^="data:"]');
+                  existingDataFavicons.forEach(link => {
+                    if (link.parentNode) {
+                      link.parentNode.removeChild(link);
+                    }
+                  });
+                  
+                  const dataFavicon = document.createElement('link');
+                  dataFavicon.rel = 'icon';
+                  dataFavicon.type = 'image/png';
+                  dataFavicon.href = dataUrl;
+                  document.head.insertBefore(dataFavicon, document.head.firstChild);
+                  console.log('[FAVICON DEBUG] Strategy 2: Added favicon as data URL (Safari workaround)');
+                }
+              })
+              .catch(err => {
+                console.warn('[FAVICON DEBUG] Data URL strategy failed:', err);
+              });
+            
+            // Strategy 4: Force reload the page's favicon by manipulating link
+            setTimeout(() => {
+              const link = document.querySelector('link[rel="icon"]');
+              if (link) {
+                const href = link.getAttribute('href');
+                link.setAttribute('href', '');
+                setTimeout(() => {
+                  link.setAttribute('href', href + '?force=' + Date.now());
+                  console.log('[FAVICON DEBUG] Strategy 3: Forced href update:', link.getAttribute('href'));
+                }, 50);
+              }
+            }, 300);
+          }, 200);
         }
+        
+        // Note: Safari may still show cached favicon. User may need to:
+        // 1. Clear Safari cache (Safari > Clear History > All History)
+        // 2. Or restart Safari
+        // 3. Or wait - Safari sometimes updates favicons slowly
       })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
