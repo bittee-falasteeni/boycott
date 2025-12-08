@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
+import { copyFileSync, existsSync } from 'fs'
+import { join } from 'path'
 
 export default defineConfig({
   base: process.env.NODE_ENV === 'production' ? '/boycott/' : '/',
+  publicDir: 'public',
   server: {
     // Fix CORS for audio files in local dev
     cors: true,
