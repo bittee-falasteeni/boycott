@@ -10768,7 +10768,9 @@ export class MainScene extends Phaser.Scene {
           // Audio started playing - this activates iOS audio system for ALL tabs
           console.log('✓ iOS audio system activated with HTML5 audio element (media volume - works for all tabs)')
           
-          // Wait a moment for iOS to fully activate, then clean up and call callback
+          // CRITICAL: Play for at least 800ms so iOS recognizes it as "media" and switches to media volume
+          // iOS requires HTML5 audio/video to play for meaningful duration to activate media volume
+          // This is why YouTube works - it plays HTML5 video continuously
           setTimeout(() => {
             html5Audio.pause()
             html5Audio.currentTime = 0
@@ -10776,10 +10778,10 @@ export class MainScene extends Phaser.Scene {
             
             // Call callback to ensure game sounds start after activation
             if (onComplete) {
-              console.log('Starting game sounds after HTML5 audio activation...')
+              console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
               onComplete()
             }
-          }, 200) // Increased delay to ensure iOS fully activates
+          }, 800) // Play for 800ms to ensure iOS fully switches to media volume
         }).catch((err: unknown) => {
           console.warn('HTML5 audio play failed (may need user interaction):', err)
           html5Audio.remove()
