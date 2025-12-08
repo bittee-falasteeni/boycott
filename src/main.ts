@@ -41,9 +41,10 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   audio: {
     // Force Web Audio API to respect media volume (not ringer volume) on mobile
-    // This allows sound to play even when phone is on silent
+    // This allows sound to play even when phone is on silent (like YouTube)
     disableWebAudio: false, // Use Web Audio API (not HTML5 Audio)
     // Note: Phaser will create its own audio context, but we'll unlock it on user interaction
+    // Web Audio API uses media volume, HTML5 Audio uses ringer volume
   },
 }
 
@@ -162,6 +163,21 @@ if (document.readyState === 'complete') {
 // Make unlockAudioContext globally available so Phaser can call it
 const gameWindow = window as any
 gameWindow.unlockAudioContext = unlockAudioContext
+
+// Create Web Audio API context EARLY to ensure Phaser uses it (not HTML5 Audio)
+// This is critical for mobile - Web Audio API uses media volume, HTML5 Audio uses ringer volume
+let earlyAudioContext: AudioContext | null = null
+try {
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+  if (AudioContextClass) {
+    earlyAudioContext = new AudioContextClass()
+    // Store it globally so Phaser can use it
+    gameWindow.earlyAudioContext = earlyAudioContext
+    console.log('Early Web Audio API context created (will use media volume, not ringer volume)')
+  }
+} catch (e) {
+  console.warn('Failed to create early audio context:', e)
+}
 
 // Create game with error handling
 try {

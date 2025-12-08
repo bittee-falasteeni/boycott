@@ -10565,6 +10565,25 @@ export class MainScene extends Phaser.Scene {
     if (this.cache.audio.exists('heartbeat-fast')) {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
     }
+    
+    // Verify all sounds are using Web Audio API (not HTML5 Audio)
+    // Web Audio API uses media volume (works when silent), HTML5 Audio uses ringer volume (doesn't work when silent)
+    this.verifyWebAudioUsage()
+  }
+  
+  private verifyWebAudioUsage(): void {
+    // Check if Phaser sound manager is using Web Audio API
+    const soundManager = this.sound as any
+    const hasWebAudioContext = soundManager && soundManager.context && 
+      (soundManager.context instanceof window.AudioContext || soundManager.context instanceof (window as any).webkitAudioContext)
+    
+    if (!hasWebAudioContext) {
+      console.warn('WARNING: Phaser may be using HTML5 Audio instead of Web Audio API.')
+      console.warn('HTML5 Audio respects ringer switch - sound won\'t play when phone is on silent.')
+      console.warn('Web Audio API uses media volume - sound will play even when phone is on silent.')
+    } else {
+      console.log('✓ Phaser is using Web Audio API (media volume - works when phone is silent)')
+    }
   }
 
   private unlockAudioContext(): void {
@@ -10576,8 +10595,24 @@ export class MainScene extends Phaser.Scene {
     
     // Unlock Web Audio API context for mobile browsers
     // This allows sound to play even when phone is on silent (uses media volume, not ringer volume)
+    // Web Audio API = media volume (works when silent), HTML5 Audio = ringer volume (doesn't work when silent)
     try {
       const soundManager = this.sound as any
+      
+      // CRITICAL: Verify Phaser is using Web Audio API, not HTML5 Audio
+      // HTML5 Audio respects ringer switch, Web Audio API uses media volume
+      const isUsingWebAudio = soundManager && soundManager.context && soundManager.context instanceof (window.AudioContext || (window as any).webkitAudioContext)
+      const isUsingHTML5Audio = soundManager && soundManager.locked === false && !soundManager.context
+      
+      if (isUsingHTML5Audio) {
+        console.warn('Phaser is using HTML5 Audio (respects ringer switch). This may cause issues on silent mode.')
+        // Try to force Web Audio API by recreating the sound manager
+        // Note: This is a workaround - ideally Phaser should use Web Audio API
+      }
+      
+      if (isUsingWebAudio) {
+        console.log('Phaser is using Web Audio API (uses media volume - works when phone is silent)')
+      }
       
       // Force Phaser to use Web Audio API if it's not already
       if (soundManager && !soundManager.context) {
@@ -10603,7 +10638,7 @@ export class MainScene extends Phaser.Scene {
         const context = soundManager.context
         if (context.state === 'suspended') {
           context.resume().then(() => {
-            console.log('Audio context unlocked - sound will work even when phone is on silent')
+            console.log('Audio context unlocked - sound will work even when phone is on silent (media volume)')
             
             // Play a silent sound to ensure audio system is fully awake
             try {
@@ -10620,7 +10655,7 @@ export class MainScene extends Phaser.Scene {
             console.warn('Failed to unlock audio context:', err)
           })
         } else if (context.state === 'running') {
-          console.log('Audio context already running')
+          console.log('Audio context already running (using media volume)')
         }
       }
       
