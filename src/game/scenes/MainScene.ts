@@ -10693,30 +10693,22 @@ export class MainScene extends Phaser.Scene {
     // iOS stays in "pending" state until a real HTML5 media element plays.
     // This is why YouTube video triggers audio in other tabs - it uses HTML5 video.
     
-    // CRITICAL: Play the ACTUAL background music file through HTML5 audio first
-    // This ensures iOS recognizes it as "media" - then Phaser can take over
-    // Just playing a test sound might not be enough - we need to play actual game audio
+    // CRITICAL: Use a DIFFERENT audio file for iOS activation (not the background music)
+    // Using the same file that Phaser needs causes conflicts when we remove the HTML5 element
+    // iOS just needs ANY HTML5 audio/video to play to activate media volume
     try {
       // Get the base URL from Phaser config
       const baseURL = this.load.baseURL || (import.meta.env.DEV ? '/' : '/boycott/')
       
-      // Try to use the actual background music file if available, otherwise use settings sound
-      const backgroundMusicPath = `${baseURL}assets/audio/bittee-mawtini1.webm`
-      const fallbackPath = `${baseURL}assets/audio/settings-sound.webm`
+      // Use settings-sound.webm for activation (NOT background music - avoids conflict)
+      const activationSoundPath = `${baseURL}assets/audio/settings-sound.webm`
       
       // Create HTML5 audio element (not Web Audio API)
       // This is what iOS Safari needs to fully activate audio for ALL tabs
       const html5Audio = document.createElement('audio')
-      html5Audio.src = backgroundMusicPath
+      html5Audio.src = activationSoundPath
       html5Audio.volume = 0.01 // Very quiet so user doesn't hear it
       html5Audio.preload = 'auto'
-      
-      // If background music fails to load, try fallback
-      html5Audio.addEventListener('error', () => {
-        console.warn('Background music HTML5 audio failed, trying fallback...')
-        html5Audio.src = fallbackPath
-        html5Audio.load()
-      })
       
       // Play and immediately pause to activate audio system
       const playPromise = html5Audio.play()
@@ -10729,19 +10721,35 @@ export class MainScene extends Phaser.Scene {
           // iOS requires HTML5 audio/video to play for meaningful duration to activate media volume
           // This is why YouTube works - it plays HTML5 video continuously
           setTimeout(() => {
-            html5Audio.pause()
-            html5Audio.currentTime = 0
-            html5Audio.remove() // Clean up
-            
-            // Call callback to ensure game sounds start after activation
-            if (onComplete) {
-              console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
-              onComplete()
+            // Clean up HTML5 audio element properly before Phaser tries to play
+            try {
+              html5Audio.pause()
+              html5Audio.currentTime = 0
+              html5Audio.src = '' // Clear src to release the file
+              html5Audio.remove() // Remove from DOM
+            } catch (e) {
+              console.warn('Error cleaning up HTML5 audio:', e)
             }
+            
+            // Small delay to ensure cleanup completes before Phaser starts playing
+            setTimeout(() => {
+              // Call callback to ensure game sounds start after activation
+              if (onComplete) {
+                console.log('Starting game sounds after HTML5 audio activation (iOS should now use media volume)...')
+                onComplete()
+              }
+            }, 100) // Additional delay to ensure file is released
           }, 800) // Play for 800ms to ensure iOS fully switches to media volume
         }).catch((err: unknown) => {
           console.warn('HTML5 audio play failed (may need user interaction):', err)
-          html5Audio.remove()
+          // Clean up properly
+          try {
+            html5Audio.pause()
+            html5Audio.src = ''
+            html5Audio.remove()
+          } catch (e) {
+            // Ignore cleanup errors
+          }
           // Still call callback even if HTML5 audio failed
           if (onComplete) {
             setTimeout(() => onComplete(), 100)
