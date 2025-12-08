@@ -10568,7 +10568,7 @@ export class MainScene extends Phaser.Scene {
         if (context.state === 'suspended') {
           context.resume().then(() => {
             console.log('Audio context unlocked - sound will work even when phone is on silent')
-          }).catch((err) => {
+          }).catch((err: unknown) => {
             console.warn('Failed to unlock audio context:', err)
           })
         }
@@ -10587,7 +10587,7 @@ export class MainScene extends Phaser.Scene {
           bg2.context.resume().catch(() => {})
         }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.warn('Audio unlock error:', err)
     }
   }
