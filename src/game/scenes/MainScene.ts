@@ -497,6 +497,7 @@ export class MainScene extends Phaser.Scene {
   private currentLevelIndex = 0
   private hudContainer!: Phaser.GameObjects.Container
   private levelText!: Phaser.GameObjects.Text
+  private levelUnderline?: Phaser.GameObjects.Rectangle
   private gameplayHeight = 0
   private settingsPanel?: Phaser.GameObjects.Container
   private settingsPanelOpenTime = 0  // Timestamp when settings panel was opened (to prevent immediate closing)
@@ -528,6 +529,11 @@ export class MainScene extends Phaser.Scene {
   private currentTauntFrame = 1  // Toggle between 1 (taunt) and 2 (taunt2)
   private isJumping = false
   private hasDoubleJumped = false  // Track if double jump has been used in boss levels
+  private jumpBufferTime: number | null = null  // Store timestamp when jump was pressed in air (for jump buffering)
+  private jumpBufferWindow = 1000  // Time window in ms to buffer jump input before landing (1 second for continuous hopping)
+  private jumpStartY: number | null = null  // Track Y position when jump starts
+  private jumpMaxY: number | null = null  // Track maximum Y position reached during jump (lowest value = highest jump)
+  private jumpStartTime: number | null = null  // Track when jump started
   private isCrouching = false
   private justExitedCrouch = false
   private tauntGravityDisabled = false
@@ -622,7 +628,15 @@ export class MainScene extends Phaser.Scene {
   private runSoundPlaying = false
   private projectedHitIndicators: Map<Phaser.Physics.Arcade.Image, Phaser.GameObjects.Text> = new Map()
   private enemyHitIndicators: Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Text> = new Map()  // Triangles above jet/tanks when hit
+  private jetHitIndicatorActive = false  // Track if jet has an active hit indicator for current fly-by
+  private tankHitIndicatorTimers: Map<number, Phaser.Time.TimerEvent> = new Map()  // Track timers for tank hit indicators
+  private tankLastFlipTime: Map<number, number> = new Map()  // Track when each tank last flipped
   private bulletTargetMap: Map<Phaser.Physics.Arcade.Image, Phaser.Physics.Arcade.Image> = new Map() // bullet -> target ball
+  private rockAmmo: Array<{ type: 'normal' | 'red' | 'green', ammo: number }> = []  // Queue of rock types
+  private isAutoFireActive = false  // Auto-fire mode (green slingshot)
+  private autoFireTimer?: Phaser.Time.TimerEvent  // Timer for auto-fire duration
+  private autoFireStartTime = 0  // Track when auto-fire started
+  private autoFireLastShot = 0  // Track last auto-fire shot time
   private aimingTriangles: Map<Phaser.Physics.Arcade.Image, Phaser.GameObjects.Text> = new Map()  // Transparent triangles shown when aiming/cocked back
   private trianglesCleared = false  // Flag to prevent immediate recreation after clearing
   private heartbeatSound?: Phaser.Sound.BaseSound
@@ -1022,14 +1036,32 @@ export class MainScene extends Phaser.Scene {
       const frameKey = currentFrame && currentAnimKey ? `${currentAnimKey}-${currentFrame.index}` : null
       if (frameKey !== lastFrameKey) {
         lastFrameKey = frameKey
-        // Increased threshold significantly to prevent micro-adjustments that cause vibration
-        // Only adjust if position needs significant correction (40px threshold - very lenient)
-        // Only move down if significantly above ground, never move up
-        if (this.player.y > this.targetFootY + 40) {
-          this.player.setY(this.targetFootY)
-          // Only update body position when we actually move the sprite
-          if (body) {
-            body.updateFromGameObject()
+        
+        // Keep feet on ground during running animations (but NOT during jumps)
+        // Only correct Y position when:
+        // 1. Running animation (not jumping)
+        // 2. Actually grounded (physics says so)
+        // 3. Almost stationary vertically (not jumping/falling)
+        if (this.isJumping || this.isTransitioning) {
+          // Don't interfere with jump physics or landing transitions
+          return
+        }
+        
+        const verticalVelocity = body ? body.velocity.y : 0
+        const isGrounded = body ? (body.blocked.down || body.touching.down) : false
+        
+        // Only correct Y when grounded and almost stationary (running on ground)
+        if (isGrounded && Math.abs(verticalVelocity) < 5) {
+          const targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+          const currentY = this.player.y
+          const yDiff = currentY - targetFootY
+          
+          // Keep feet on ground - correct if more than 2px off (gentle correction)
+          if (Math.abs(yDiff) > 2) {
+            this.player.setY(targetFootY)
+            if (body) {
+              body.updateFromGameObject()
+            }
           }
         }
       }
@@ -1346,7 +1378,12 @@ export class MainScene extends Phaser.Scene {
           return
         }
         const powerUp = powerUpObj as Phaser.Physics.Arcade.Image
-        const powerUpType = powerUp.getData('type') as 'life' | 'shield' | 'time'
+        // Prevent immediate collection - powerup must exist for at least 200ms before it can be collected
+        const spawnTime = powerUp.getData('spawnTime') as number | undefined
+        if (spawnTime && this.time.now - spawnTime < 200) {
+          return  // Too soon after spawn, ignore collection
+        }
+        const powerUpType = powerUp.getData('type') as 'life' | 'shield' | 'time' | 'slingshot-red'
         this.collectPowerUp(powerUpType)
         powerUp.destroy()
       },
@@ -1407,6 +1444,7 @@ export class MainScene extends Phaser.Scene {
 
     this.createHud(worldWidth, hudHeight, this.gameplayHeight)
     this.updateHud()
+    this.updateAmmoDisplay()  // Initialize ammo display
     this.createSettingsButton()
     this.ensureSettingsPanel()
     this.applyLevel(this.currentLevelIndex)
@@ -1507,6 +1545,7 @@ export class MainScene extends Phaser.Scene {
     this.handleJump()
     this.handlePlayerMovement()
     this.handleThrowing(time)
+    this.handleAutoFire(time)  // Handle auto-fire for green slingshot
     this.cleanupBullets()
     this.updatePowerUps()
     this.updateProjectedHitIndicators()
@@ -1681,30 +1720,12 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Constrain player X position to prevent edges from going off screen
-    // Also prevent running into walls by stopping velocity if at edge and trying to run that direction
     const worldWidth = this.cameras.main.width
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body
     if (playerBody) {
       const playerHalfWidth = this.player.displayWidth / 2
       const rightEdge = this.player.x + playerHalfWidth
       const leftEdge = this.player.x - playerHalfWidth
-      const atLeftEdge = leftEdge <= 0
-      const atRightEdge = rightEdge >= worldWidth
-      
-      // Smooth wall collision: gradually reduce velocity as approaching edge
-      // This creates a soft, natural stop instead of abrupt collision
-      if (atLeftEdge && playerBody.velocity.x < 0) {
-        // Smoothly stop when hitting left wall
-        const stopFactor = 0.3  // Reduce velocity by 70% each frame for smooth stop
-        this.player.setVelocityX(playerBody.velocity.x * stopFactor)
-        playerBody.setVelocityX(playerBody.velocity.x * stopFactor)
-      }
-      if (atRightEdge && playerBody.velocity.x > 0) {
-        // Smoothly stop when hitting right wall
-        const stopFactor = 0.3
-        this.player.setVelocityX(playerBody.velocity.x * stopFactor)
-        playerBody.setVelocityX(playerBody.velocity.x * stopFactor)
-      }
       
       // Soft constraint: gently nudge player back if slightly past edge
       // This ensures left edge settles exactly on x=0 when player lets go
@@ -1928,10 +1949,10 @@ export class MainScene extends Phaser.Scene {
       .setDepth(10)
       .setScale(2.5)
 
-    const levelUnderline = this.add.rectangle(this.levelText.x + this.levelText.width / 2, padding + this.levelText.height + 20, this.levelText.width + 100, 10, 0xd7ddcc, 1)
-    levelUnderline.setOrigin(0.5, 0)
-    levelUnderline.setScrollFactor(0)
-    levelUnderline.setDepth(10)
+    this.levelUnderline = this.add.rectangle(this.levelText.x + this.levelText.width / 2, padding + this.levelText.height + 20, this.levelText.width + 100, 10, 0xd7ddcc, 1)
+    this.levelUnderline.setOrigin(0.5, 0)
+    this.levelUnderline.setScrollFactor(0)
+    this.levelUnderline.setDepth(10)
 
     // Initialize score text - will be updated by updateHud() based on level type
     this.scoreText = this.add.text(worldWidth - padding, padding, 'Boycotted: 0', {
@@ -4127,6 +4148,12 @@ export class MainScene extends Phaser.Scene {
               }
             })
             
+            // Clean up boss level elements if selecting a different level while in boss phase
+            // This ensures tanks, health bars, etc. are removed when selecting a level
+            if (this.isBossLevel) {
+              this.cleanupBossLevel()
+            }
+            
             // Handle boss level selection - start boss level directly (don't change currentLevelIndex)
             if (isBossLevel) {
               // Don't change currentLevelIndex or applyLevel - just start boss level
@@ -4678,16 +4705,29 @@ export class MainScene extends Phaser.Scene {
       this.levelText.setText(labelText)
       const padding = 24
       if (isBossLabel) {
-        // Make boss label larger and bright olive green, and raise it up
-        this.levelText.setFontSize('120px')  // Larger font
-        this.levelText.setScale(3.0)  // Larger scale (was 2.5)
+        // During boss phases (jet/tank), show Arabic text normally
+        // Victory phase styling is handled in startVictoryPhase() and reset in startGame()
+        // Make boss label larger and bright olive green, shift down and to the left
+        this.levelText.setFontSize('140px')  // Larger font (increased from 120px for less pixelation)
+        this.levelText.setScale(2.8)  // Slightly reduced scale (from 3.0) to reduce pixelation while keeping size
         this.levelText.setColor('#7fb069')  // Bright olive green
-        this.levelText.setY(padding - 20)  // Raise it up by 20 pixels
+        this.levelText.setX(padding - 10)  // Shift left by 10 pixels
+        this.levelText.setOrigin(0, 0)  // Ensure left origin
+        this.levelText.setY(padding + 10)  // Shift down by 10 pixels (was padding - 20)
+        // Show underline for boss levels (will be hidden when last tank is destroyed)
+        if (this.levelUnderline) {
+          this.levelUnderline.setVisible(true)
+          // Update underline position to match text position
+          this.levelUnderline.setX(this.levelText.x + this.levelText.width / 2)
+          this.levelUnderline.setY(this.levelText.y + this.levelText.height + 20)
+        }
       } else {
-        // Regular level styling
+        // Regular level styling - reset to original position and origin
         this.levelText.setFontSize('100px')
         this.levelText.setScale(2.5)
         this.levelText.setColor('#cbe4ff')  // Original blue color
+        this.levelText.setX(padding)  // Reset to original left position
+        this.levelText.setOrigin(0, 0)  // Reset to original left origin
         this.levelText.setY(padding)  // Reset to original position
       }
     }
@@ -4732,30 +4772,14 @@ export class MainScene extends Phaser.Scene {
   }
 
   private isPlayerGrounded(body: Phaser.Physics.Arcade.Body): boolean {
-    // Prioritize physics body's ground detection - most reliable
-    if (body.blocked.down || body.touching.down || body.onFloor?.() === true) {
-      return true
-    }
-
-    // Fallback: treat as grounded when very close to the ground and moving slowly
-    // Increased range to account for slight elevation during running animations
-    const epsilon = 12  // Increased to 12 for better detection during running (was 10)
-    const nearGround = this.player.y >= this.groundYPosition - 5 && this.player.y <= this.groundYPosition + epsilon
-    const verticalVelocity = body.velocity.y
-    // More lenient velocity check for running scenarios
-    return nearGround && verticalVelocity >= -100 && verticalVelocity <= 50
+    // SIMPLIFIED: Use physics body ground detection only - trust the physics engine
+    return body.blocked.down || body.touching.down
   }
 
-  // Lenient jump check that accounts for running animation elevation
+  // SIMPLIFIED: Use strict physics ground detection only
   private canJump(body: Phaser.Physics.Arcade.Body): boolean {
-    const onGround = this.isPlayerGrounded(body)
-    if (onGround) return true
-    
-    // Allow jump if very close to ground (within 5px above to 15px below) and moving slowly
-    // This handles cases where running animation frames slightly elevate Bittee
-    const nearGround = this.player.y >= this.groundYPosition - 5 && this.player.y <= this.groundYPosition + 15
-    const verticalVelocity = body.velocity.y
-    return nearGround && verticalVelocity >= -50 && verticalVelocity <= 50
+    // Only allow jump if actually grounded according to physics
+    return this.isPlayerGrounded(body)
   }
 
   // FIX: Centralized crouch exit transition function (Copilot recommendation)
@@ -4989,7 +5013,7 @@ export class MainScene extends Phaser.Scene {
       const atRightEdge = this.player.x + playerHalfWidth >= worldWidth
       
       if (leftDown) {
-        // Don't allow running left if at left edge
+        // Stop at left edge - don't allow further movement left
         if (atLeftEdge) {
           this.player.setVelocityX(0)
           if (body) {
@@ -4997,7 +5021,7 @@ export class MainScene extends Phaser.Scene {
           }
         } else {
           // Set velocity on both sprite and body to ensure movement
-      this.player.setVelocityX(-PLAYER_SPEED)
+          this.player.setVelocityX(-PLAYER_SPEED)
           const previousFacing = this.facing
           this.facing = 'left'
           if (body) {
@@ -5009,15 +5033,23 @@ export class MainScene extends Phaser.Scene {
             const jumpFrame = BITTEE_SPRITES.jumpAir.left[this.currentJumpFrameIndex].key
             this.player.setTexture(jumpFrame)
           }
-          if (isOnGround && !atLeftEdge) {
+          if (isOnGround && !atLeftEdge && !this.isJumping) {
+            // CRITICAL: Don't set run animation if jumping (jump takes priority)
             const currentAnim = this.player.anims.currentAnim?.key
             const isJumpAnim = currentAnim === 'bittee-jump-air-left' || currentAnim === 'bittee-jump-air-right' || 
                                currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
             // Force animation change if not already running left
             if (currentAnim !== 'bittee-run-left' && !isJumpAnim && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
               this.player.anims.play('bittee-run-left', true)
-              // Only set Y position when first switching to run animation, not every frame
-              // The animation update listener will handle maintaining position during frame changes
+              // Keep feet on ground during running - gentle correction
+              // CRITICAL: Don't correct Y position if jumping - it cancels the jump!
+              const targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+              if (Math.abs(this.player.y - targetFootY) > 2 && isOnGround && !this.isJumping) {
+                this.player.setY(targetFootY)
+                if (body) {
+                  body.updateFromGameObject()
+                }
+              }
             }
             // Play run sound if not already playing
             if (!this.runSoundPlaying) {
@@ -5027,7 +5059,7 @@ export class MainScene extends Phaser.Scene {
           }
         }
       } else if (rightDown) {
-        // Don't allow running right if at right edge
+        // Stop at right edge - don't allow further movement right
         if (atRightEdge) {
           this.player.setVelocityX(0)
           if (body) {
@@ -5035,7 +5067,7 @@ export class MainScene extends Phaser.Scene {
           }
         } else {
           // Set velocity on both sprite and body to ensure movement
-      this.player.setVelocityX(PLAYER_SPEED)
+          this.player.setVelocityX(PLAYER_SPEED)
           const previousFacing = this.facing
           this.facing = 'right'
           if (body) {
@@ -5047,15 +5079,23 @@ export class MainScene extends Phaser.Scene {
             const jumpFrame = BITTEE_SPRITES.jumpAir.right[this.currentJumpFrameIndex].key
             this.player.setTexture(jumpFrame)
           }
-          if (isOnGround && !atRightEdge) {
+          if (isOnGround && !atRightEdge && !this.isJumping) {
+            // CRITICAL: Don't set run animation if jumping (jump takes priority)
             const currentAnim = this.player.anims.currentAnim?.key
             const isJumpAnim = currentAnim === 'bittee-jump-air-left' || currentAnim === 'bittee-jump-air-right' || 
                                currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
             // Force animation change if not already running right
             if (currentAnim !== 'bittee-run-right' && !isJumpAnim && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
               this.player.anims.play('bittee-run-right', true)
-              // Only set Y position when first switching to run animation, not every frame
-              // The animation update listener will handle maintaining position during frame changes
+              // Keep feet on ground during running - gentle correction
+              // CRITICAL: Don't correct Y position if jumping - it cancels the jump!
+              const targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+              if (Math.abs(this.player.y - targetFootY) > 2 && isOnGround && !this.isJumping) {
+                this.player.setY(targetFootY)
+                if (body) {
+                  body.updateFromGameObject()
+                }
+              }
             }
             // Play run sound if not already playing
             if (!this.runSoundPlaying) {
@@ -5124,15 +5164,41 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
+    // SIMPLIFIED: Simple jump buffering - only buffer if falling (not grounded, moving down)
+    if (jumpJustPressed && !onGround && body.velocity.y > 0 && !this.isThrowing && !this.isCrouching) {
+      // Store jump input with timestamp for buffering (only when falling)
+      this.jumpBufferTime = this.time.now
+    }
+
+    // Check if running (need to do this early for debug logs and jump logic)
+    const isRunning = isMoving && Math.abs(body.velocity.x) > 10
+
     // JUMP (standing or running). If the player crouched within the last second
     // before jumping, we boost the jump height.
     // Use lenient canJump check instead of strict onGround for better reliability during running
     const canJump = this.canJump(body)
+    
     // In jet phase only, allow double jump (second jump while in air)
     // Tank phase: no double jump, but keep super jump
     const isJetPhase = this.isBossLevel && this.bossPhase === 'jet'
     const canDoubleJump = isJetPhase && this.isJumping && !this.hasDoubleJumped && !onGround
+    
     if (jumpJustPressed && (canJump || canDoubleJump) && !this.isThrowing) {
+      // Track jump start for debugging
+      this.jumpStartY = this.player.y
+      this.jumpMaxY = this.player.y  // Initialize to start Y (lower = higher jump)
+      this.jumpStartTime = this.time.now
+      
+      if (isRunning) {
+        console.log('[JUMP] Executing jump from running state', {
+          startY: this.jumpStartY.toFixed(2),
+          groundY: this.groundYPosition.toFixed(2),
+          velX: body.velocity.x.toFixed(2),
+          velY: body.velocity.y.toFixed(2),
+          blockedDown: body.blocked.down,
+          touchingDown: body.touching.down
+        })
+      }
       if (this.isCrouching) {
         // Reset all state flags
         this.isCrouching = false
@@ -5163,7 +5229,7 @@ export class MainScene extends Phaser.Scene {
         }
       }
 
-      const isRunning = isMoving && Math.abs(body.velocity.x) > 10
+      // isRunning is already declared above
       let jumpDirection: 'left' | 'right'
 
       if (isRunning) {
@@ -5180,9 +5246,11 @@ export class MainScene extends Phaser.Scene {
       }
       this.isJumping = true
       if (body) {
-        body.setVelocityY(0)
+        // CRITICAL: Set gravity first, then velocity directly (don't set to 0 first)
+        // Setting to 0 creates a brief window where landing check can cancel the jump
         body.setAcceleration(0, 0)
         body.setGravityY(this.jumpGravityY)
+        // Don't set velocity to 0 - we'll set it to jumpVelocity immediately below
       }
 
       // Determine base or boosted jump velocity.
@@ -5200,28 +5268,30 @@ export class MainScene extends Phaser.Scene {
 
       // Reset jump frame index when starting a new jump
       this.currentJumpFrameIndex = 0
+      
+      // CRITICAL: Stop ALL animations immediately and set jump frame
+      // This prevents running pose from showing during jump
+      this.player.anims.stop()
+      
+      // Determine jump frame based on direction
+      let firstAirFrame: string
       if (isRunning) {
-        // Running jump: use the same air pose as standing, but keep horizontal speed.
-        const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][0].key
-        this.player.setFlipX(false)
-        this.player.anims.stop()
-        this.player.setTexture(firstAirFrame)
-        if (body) {
-          body.setGravityY(this.jumpGravityY)
-          body.setVelocityY(jumpVelocity)
-        }
+        // Running jump: use first air frame for direction
+        firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][0].key
       } else {
         // Standing jump: switch between jump-right2 and jump-left2
-        // right: index 0 = jump-right2, left: index 1 = jump-left2
         const airFrameIndex = jumpDirection === 'right' ? 0 : 1
-        const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][airFrameIndex].key
-        this.player.setFlipX(false)
-        this.player.anims.stop()
-        this.player.setTexture(firstAirFrame)
-        if (body) {
-          body.setGravityY(this.jumpGravityY)
-          body.setVelocityY(jumpVelocity)
-        }
+        firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][airFrameIndex].key
+      }
+      
+      // Set jump frame immediately - this ensures running pose doesn't show
+      this.player.setFlipX(false)
+      this.player.setTexture(firstAirFrame)
+      
+      // Apply jump physics
+      if (body) {
+        body.setGravityY(this.jumpGravityY)
+        body.setVelocityY(jumpVelocity)
       }
     }
 
@@ -5234,18 +5304,132 @@ export class MainScene extends Phaser.Scene {
       if (body && body.gravity.y !== this.jumpGravityY) {
         body.setGravityY(this.jumpGravityY)
       }
+      
+      // Track max Y position during jump (lower Y = higher jump)
+      if (this.jumpStartY !== null && this.jumpMaxY !== null) {
+        if (this.player.y < this.jumpMaxY) {
+          this.jumpMaxY = this.player.y
+        }
+      }
     }
 
-    if (onGround && this.isJumping && body && body.velocity.y >= 0) {
-      // End jump as soon as we've landed (no longer moving upward)
+    // SIMPLIFIED: Only end jump if physics says grounded AND not moving upward
+    // CRITICAL: Add minimum jump time to prevent immediate cancellation
+    // Physics body can still report "grounded" for 1-2 frames after jump starts
+    // Increased to 100ms to ensure jump velocity has time to take effect
+    const minJumpTime = 100  // Minimum 100ms before jump can end
+    const hasJumpTimeElapsed = this.jumpStartTime !== null && (this.time.now - this.jumpStartTime) >= minJumpTime
+    
+    // CRITICAL: Never end jump if player is still moving upward (velocity.y < 0)
+    // This is the most reliable check - if moving up, can't have landed
+    if (this.isJumping && body.velocity.y < 0) {
+      // Player is moving up - can't have landed yet, skip landing check
+      return
+    }
+    
+    const isActuallyGrounded = body.blocked.down || body.touching.down
+    
+    // Only end jump if:
+    // 1. Actually grounded (physics says so)
+    // 2. Not moving upward (velocity.y >= 0) - already checked above
+    // 3. Enough time has passed (prevents immediate cancellation when physics still reports "grounded")
+    // The minimum jump time prevents the landing check from running in the same frame as jump starts
+    if (isActuallyGrounded && this.isJumping && body.velocity.y >= 0 && hasJumpTimeElapsed) {
+      // End jump - we've landed
+      if (this.jumpStartY !== null && this.jumpMaxY !== null && this.jumpStartTime !== null) {
+        const jumpHeight = this.jumpStartY - this.jumpMaxY  // Positive = actual jump height
+        const jumpDuration = this.time.now - this.jumpStartTime
+        const wasRunning = Math.abs(body.velocity.x) > 10
+        
+        if (wasRunning) {
+          console.log('[JUMP] Jump completed', {
+            startY: this.jumpStartY.toFixed(2),
+            maxY: this.jumpMaxY.toFixed(2),
+            endY: this.player.y.toFixed(2),
+            jumpHeight: jumpHeight.toFixed(2),
+            jumpDuration: jumpDuration.toFixed(0) + 'ms',
+            groundY: this.groundYPosition.toFixed(2),
+            velY: body.velocity.y.toFixed(2),
+            wasSuccessful: jumpHeight > 5
+          })
+        }
+        
+        // Reset tracking
+        this.jumpStartY = null
+        this.jumpMaxY = null
+        this.jumpStartTime = null
+      }
+      
       this.isJumping = false
-      this.hasDoubleJumped = false  // Reset double jump when landing
+      this.hasDoubleJumped = false
       body.setGravityY(this.normalGravityY)
       
       // Ensure player lands exactly at gameplayHeight (ground level)
       const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
       this.player.setY(feetY)
       body.updateFromGameObject()
+      
+      // Check for buffered jump input - if jump was pressed before landing, execute it now
+      // Do this BEFORE setting isTransitioning to allow the buffered jump to execute
+      if (this.jumpBufferTime !== null && (this.time.now - this.jumpBufferTime) <= this.jumpBufferWindow) {
+        // Clear buffer immediately
+        this.jumpBufferTime = null
+        
+        // Execute buffered jump directly without checking canJump (we just landed, so we can jump)
+        if (!this.isThrowing && !this.isCrouching) {
+          // Execute the buffered jump
+          const isRunning = ((this.cursors.left?.isDown ?? false) || this.touchLeft || 
+                            (this.cursors.right?.isDown ?? false) || this.touchRight) && 
+                           Math.abs(body.velocity.x) > 10
+          let jumpDirection: 'left' | 'right'
+          if (isRunning) {
+            jumpDirection = this.facing
+          } else {
+            jumpDirection = this.standingJumpDirection
+            this.standingJumpDirection = this.standingJumpDirection === 'left' ? 'right' : 'left'
+          }
+          this.currentJumpDirection = jumpDirection
+          this.isJumping = true
+          this.isTransitioning = false  // Reset transitioning since we're jumping again
+          this.transitionFrameCount = 0
+          body.setVelocityY(0)
+          body.setAcceleration(0, 0)
+          body.setGravityY(this.jumpGravityY)
+          
+          const isTankLevel = this.isBossLevel && (this.bossPhase === 'tank1' || this.bossPhase === 'tank2' || this.bossPhase === 'tank3')
+          let jumpVelocity = isTankLevel ? -JUMP_SPEED * 1.6 : -JUMP_SPEED
+          if (!isTankLevel && this.lastCrouchTime !== null && this.time.now - this.lastCrouchTime <= 1000) {
+            jumpVelocity = -JUMP_SPEED * 1.6
+            this.lastCrouchTime = null
+          }
+          
+          this.currentJumpFrameIndex = 0
+          // Always use air frame directly (skip jumpSquat for buffered jumps)
+          if (isRunning) {
+            const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][0].key
+            this.player.setFlipX(false)
+            this.player.anims.stop()
+            this.player.setTexture(firstAirFrame)
+            body.setGravityY(this.jumpGravityY)
+            body.setVelocityY(jumpVelocity)
+          } else {
+            const airFrameIndex = jumpDirection === 'right' ? 0 : 1
+            const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][airFrameIndex].key
+            this.player.setFlipX(false)
+            this.player.anims.stop()
+            this.player.setTexture(firstAirFrame)
+            body.setGravityY(this.jumpGravityY)
+            body.setVelocityY(jumpVelocity)
+          }
+          // Skip the rest of landing logic since we're jumping again
+          return
+        }
+      }
+      
+      // Clear expired jump buffer
+      if (this.jumpBufferTime !== null && (this.time.now - this.jumpBufferTime) > this.jumpBufferWindow) {
+        this.jumpBufferTime = null
+      }
       
       // Set transitioning flag to prevent vibration after landing
       this.isTransitioning = true
@@ -5255,12 +5439,17 @@ export class MainScene extends Phaser.Scene {
       const leftDown = (this.cursors.left?.isDown ?? false) || this.touchLeft
       const rightDown = (this.cursors.right?.isDown ?? false) || this.touchRight
       
+      // Ensure we're not stuck on a jump frame
+      const currentTexture = this.player.texture.key
+      const isJumpTexture = currentTexture.includes('jump')
+      
       if (leftDown || rightDown) {
         // Transition to running pose immediately if movement key is still held
         const runKey = leftDown ? 'bittee-run-left' : 'bittee-run-right'
         this.facing = leftDown ? 'left' : 'right'
-        const currentAnim = this.player.anims.currentAnim?.key
-        if (currentAnim !== runKey) {
+        // Force animation change if we're on a jump texture
+        if (isJumpTexture || this.player.anims.currentAnim?.key !== runKey) {
+          this.player.anims.stop()
           this.player.anims.play(runKey, true)
         }
         // Set velocity to continue running
@@ -5274,8 +5463,9 @@ export class MainScene extends Phaser.Scene {
         const currentVelocityX = body.velocity.x
         if (Math.abs(currentVelocityX) > 10) {
           const runKey = this.facing === 'left' ? 'bittee-run-left' : 'bittee-run-right'
-          const currentAnim = this.player.anims.currentAnim?.key
-          if (currentAnim !== runKey) {
+          // Force animation change if we're on a jump texture
+          if (isJumpTexture || this.player.anims.currentAnim?.key !== runKey) {
+            this.player.anims.stop()
             this.player.anims.play(runKey, true)
           }
         } else {
@@ -5359,11 +5549,35 @@ export class MainScene extends Phaser.Scene {
     }
 
     const time = this.time.now
-    const canFire = time > this.lastFired + this.fireRate
+    // Use faster fire rate if auto-fire is active (2x rate = half the fireRate)
+    const effectiveFireRate = this.isAutoFireActive ? this.fireRate / 2 : this.fireRate
+    const canFire = time > this.lastFired + effectiveFireRate
     if (!canFire) {
       this.isAiming = false
       this.cancelAiming()
       return
+    }
+
+    // Determine which rock type to use
+    let rockType: 'normal' | 'red' | 'green' = 'normal'
+    if (this.rockAmmo.length > 0 && this.rockAmmo[0].ammo > 0) {
+      rockType = this.rockAmmo[0].type
+      this.rockAmmo[0].ammo--
+      if (this.rockAmmo[0].ammo <= 0) {
+        this.rockAmmo.shift()  // Remove empty ammo entry
+      }
+      this.updateAmmoDisplay()
+      // Remove Super Rock indicator when ammo is used up
+      if (this.rockAmmo.length === 0 || this.rockAmmo.every(entry => entry.ammo === 0)) {
+        const superRockIndicator = this.powerUpIndicators.get('super-rock')
+        if (superRockIndicator) {
+          if (superRockIndicator.tween) superRockIndicator.tween.remove()
+          superRockIndicator.text.destroy()
+          superRockIndicator.progressBar.destroy()
+          superRockIndicator.progressBarBg.destroy()
+          this.powerUpIndicators.delete('super-rock')
+        }
+      }
     }
 
     // Get bullet from pool
@@ -5384,28 +5598,33 @@ export class MainScene extends Phaser.Scene {
     bullet.setActive(true)
     bullet.setVisible(true)
     bullet.setTexture(ROCK_SPRITE.key)
-    // Set origin to center for easier collision box calculations
     bullet.setOrigin(0.5, 0.5)
-    // Preserve the rock's aspect ratio while fitting roughly within ROCK_TARGET_SIZE.
+    
+    // Set rock type data
+    bullet.setData('rockType', rockType)
+    
+    // Calculate scale based on rock type
     const rockTexture = this.textures.get(ROCK_SPRITE.key)
     const rockSource = rockTexture?.getSourceImage() as HTMLImageElement | HTMLCanvasElement | undefined
+    let baseScale = 1
     if (rockSource && rockSource.width && rockSource.height) {
       const maxDim = Math.max(rockSource.width, rockSource.height)
-      const scale = maxDim > 0 ? ROCK_TARGET_SIZE / maxDim : 1
-      bullet.setScale(scale)
+      baseScale = maxDim > 0 ? ROCK_TARGET_SIZE / maxDim : 1
+    }
+    
+    // Apply size modifiers
+    if (rockType === 'red') {
+      bullet.setScale(baseScale * 2)  // Double size
     } else {
-      bullet.setDisplaySize(ROCK_TARGET_SIZE, ROCK_TARGET_SIZE)
+      bullet.setScale(baseScale)
     }
 
     // Spawn the rock from Bittee's top-right side
-    const spawnX = this.player.x + this.player.displayWidth * 0.4  // Right side of Bittee
-    const spawnY = this.player.y - this.player.displayHeight * 0.5  // Top of Bittee
+    const spawnX = this.player.x + this.player.displayWidth * 0.4
+    const spawnY = this.player.y - this.player.displayHeight * 0.5
     bullet.setPosition(spawnX, spawnY)
 
-    // Determine throw direction:
-    // - In tank phase: always shoot down (for mobile users without down arrow)
-    // - On ground (non-tank): straight up
-    // - In air (non-tank): shoot up (default) or down (if down is held)
+    // Determine throw direction and speed
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
     const onGround = body ? this.isPlayerGrounded(body) : true
     const downDown = (this.cursors.down?.isDown ?? false) || this.touchDown
@@ -5413,7 +5632,10 @@ export class MainScene extends Phaser.Scene {
     let vx = 0
     let vy = -BULLET_SPEED  // Default: shoot up
 
-    if (this.isTankPhase) {
+    // Red rock always goes straight up (no tank phase or down arrow override)
+    if (rockType === 'red') {
+      vy = -BULLET_SPEED  // Always straight up
+    } else if (this.isTankPhase) {
       // In tank phase: always shoot down
       vy = BULLET_SPEED * 1.6  // Shoot downward
     } else if (!onGround) {
@@ -5431,22 +5653,24 @@ export class MainScene extends Phaser.Scene {
 
     bulletBody.enable = true
     bulletBody.setAllowGravity(false)
-    // Collision box: centered on rock PNG, square-like shape
-    // Get texture frame dimensions (unscaled, from the actual texture)
+    
+    // Set collision box based on rock type
     const texture = this.textures.get(ROCK_SPRITE.key)
     const frame = texture ? texture.get(0) : null
     const frameWidth = frame ? frame.width : bullet.width
-    
-    // Make collision box: 1x width (cut in half from 2x), then reduce height to make it square-like
-    const collisionWidth = frameWidth * 1.0  // Half of previous 2x
-    const collisionHeight = collisionWidth * 0.8  // Make it more square by reducing height relative to width
+    const sizeMultiplier = rockType === 'red' ? 2 : 1
+    const collisionWidth = frameWidth * 1.0 * sizeMultiplier
+    const collisionHeight = collisionWidth * 0.8
     bulletBody.setSize(collisionWidth, collisionHeight)
     
-    // Offset calculation: setOffset is relative to texture frame top-left corner
-    // Center horizontally, position at top vertically
-    const offsetX = (frameWidth - collisionWidth) / 2  // Center horizontally
-    const offsetY = 0  // Top of texture frame (aligns top of collision box with top of PNG)
+    const offsetX = (frameWidth - collisionWidth) / 2
+    const offsetY = 0
     bulletBody.setOffset(offsetX, offsetY)
+    
+    // Mark red rocks as indestructible
+    if (rockType === 'red') {
+      bullet.setData('indestructible', true)
+    }
 
     // Make aiming triangles fully opaque when throw is released
     // Convert all aiming triangles to projected hit indicators
@@ -5516,7 +5740,23 @@ export class MainScene extends Phaser.Scene {
   private cleanupBullets(): void {
     this.bullets.getChildren().forEach((child) => {
       const bullet = child as Phaser.Physics.Arcade.Image
-      if (bullet.active && bullet.y < -16) {
+      if (!bullet.active) return
+      
+      // Red rocks: destroy when past ceiling (y < -16)
+      const isIndestructible = bullet.getData('indestructible') === true
+      if (isIndestructible && bullet.y < -16) {
+        // Remove any triangle indicators
+        const targetBall = this.bulletTargetMap.get(bullet)
+        if (targetBall) {
+          this.removeProjectedHitIndicator(targetBall)
+          this.bulletTargetMap.delete(bullet)
+        }
+        bullet.disableBody(true, true)
+        return
+      }
+      
+      // Normal cleanup for other bullets
+      if (bullet.y < -16) {
         // Remove any triangle indicators for this bullet's target
         const targetBall = this.bulletTargetMap.get(bullet)
         if (targetBall) {
@@ -5529,6 +5769,21 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handleBulletHit(bullet: Phaser.Physics.Arcade.Image, ball: Phaser.Physics.Arcade.Image): void {
+    // Red rocks are indestructible - don't destroy on ball hit
+    const isIndestructible = bullet.getData('indestructible') === true
+    if (isIndestructible) {
+      // Don't destroy the bullet, just hit the ball
+      if (this.settings.screenShake) {
+        this.cameras.main.shake(80, 0.004)
+      }
+      this.playSound('throw-sound4', 0.3)
+      this.score += 1
+      this.totalBubblesDestroyed += 1
+      this.updateHud()
+      this.splitBall(ball)
+      return
+    }
+    
     if (bullet.active) {
       bullet.disableBody(true, true)
     }
@@ -5828,27 +6083,29 @@ export class MainScene extends Phaser.Scene {
       
       if (Math.random() < spawnChance) {
         // Determine power-up type with weighted chances
-        let powerUpType: 'life' | 'shield' | 'time'
+        let powerUpType: 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'
         
         // If lives are low (less than 3) and not at max (5), increase life power-up chance
         // If at max lives (5), never spawn life power-ups
         if (this.lives >= 5) {
-          // At max lives, only spawn shield or time
-          const powerUpTypes: Array<'shield' | 'time'> = ['shield', 'time']
+          // At max lives, spawn shield, time, or slingshot powerups
+          const powerUpTypes: Array<'shield' | 'time' | 'slingshot-red'> = ['shield', 'time', 'slingshot-red']
           powerUpType = Phaser.Math.RND.pick(powerUpTypes)
         } else if (this.lives < 3) {
-          // 60% chance for life, 20% each for shield and time
+          // 50% chance for life, 10% each for shield and time, 30% for slingshot
           const rand = Math.random()
-          if (rand < 0.6) {
+          if (rand < 0.5) {
             powerUpType = 'life'
-          } else if (rand < 0.8) {
+          } else if (rand < 0.6) {
             powerUpType = 'shield'
-          } else {
+          } else if (rand < 0.7) {
             powerUpType = 'time'
+          } else {
+            powerUpType = 'slingshot-red'
           }
         } else {
-          // Normal distribution: equal chance for all
-          const powerUpTypes: Array<'life' | 'shield' | 'time'> = ['life', 'shield', 'time']
+          // Normal distribution: equal chance for all (including slingshot)
+          const powerUpTypes: Array<'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'> = ['life', 'shield', 'time', 'slingshot-red', 'slingshot-green']
           powerUpType = Phaser.Math.RND.pick(powerUpTypes)
         }
         
@@ -5871,33 +6128,49 @@ export class MainScene extends Phaser.Scene {
     ball.destroy()
 
     // Check if all balls are destroyed - with error handling for mobile crashes
-    try {
-      if (this.balls && typeof this.balls.countActive === 'function') {
-        const activeCount = this.balls.countActive(true)
-        if (activeCount === 0 && !this.isBossLevel && this.isGameActive) {
-          // Use a flag to prevent multiple level advances
-          if (!this.isAdvancingLevel) {
-            this.isAdvancingLevel = true
-            this.time.delayedCall(500, () => {
-              try {
-                if (this.isGameActive && !this.isBossLevel && this.scene) {
-                  this.advanceLevel()
+    // Use a delayed check to ensure the ball is fully removed from the group
+    this.time.delayedCall(50, () => {
+      try {
+        if (this.balls) {
+          // Count active balls by iterating through children
+          let activeCount = 0
+          let totalCount = 0
+          this.balls.children.entries.forEach((ballObj) => {
+            const ball = ballObj as Phaser.Physics.Arcade.Image
+            totalCount++
+            if (ball && ball.active) {
+              activeCount++
+            }
+          })
+          
+          if (activeCount === 0 && !this.isBossLevel && this.isGameActive) {
+            // Use a flag to prevent multiple level advances
+            if (!this.isAdvancingLevel) {
+              this.isAdvancingLevel = true
+              this.time.delayedCall(500, () => {
+                try {
+                  if (this.isGameActive && !this.isBossLevel && this.scene) {
+                    // Reset the flag before calling so advanceLevel() can set it itself
+                    this.isAdvancingLevel = false
+                    this.advanceLevel()
+                  } else {
+                    this.isAdvancingLevel = false
+                  }
+                } catch (err: unknown) {
+                  console.error('Error in advanceLevel:', err)
+                  this.isAdvancingLevel = false
                 }
-              } catch (err: unknown) {
-                console.error('Error in advanceLevel:', err)
-              } finally {
-                this.isAdvancingLevel = false
-              }
-            })
+              })
+            }
           }
         }
+      } catch (err: unknown) {
+        console.error('Error checking ball count:', err)
       }
-    } catch (err: unknown) {
-      console.error('Error checking ball count:', err)
-    }
+    })
   }
 
-  private spawnPowerUp(x: number, y: number, type: 'life' | 'shield' | 'time'): void {
+  private spawnPowerUp(x: number, y: number, type: 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'): void {
     const powerUp = this.powerUps.create(x, y, `powerup-${type}`) as Phaser.Physics.Arcade.Image
     if (!powerUp) {
       return
@@ -5907,6 +6180,8 @@ export class MainScene extends Phaser.Scene {
     // Different scales for different power-ups
     if (type === 'shield') {
       powerUp.setScale(0.18)  // Shield icon larger
+    } else if (type === 'slingshot-red') {
+      powerUp.setScale(0.18)  // Slingshot icon same size as shield
     } else {
       powerUp.setScale(0.08)  // Life and time icons smaller
     }
@@ -5937,6 +6212,7 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Track spawn time and ground hit time
+    powerUp.setData('spawnTime', this.time.now)  // Track when powerup was spawned
     powerUp.setData('hasHitGround', false)
     powerUp.setData('isBlinking', false)
     powerUp.setData('blinkTween', null)
@@ -6001,7 +6277,7 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  private collectPowerUp(type: 'life' | 'shield' | 'time'): void {
+  private collectPowerUp(type: 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'): void {
     // Play power-up sound effect
     this.playSound('powerup', 0.5)
 
@@ -6027,6 +6303,40 @@ export class MainScene extends Phaser.Scene {
         // Activate slow motion
         this.activateSlowMotion()
         this.showPowerUpIndicator('Slow Motion', 3000)  // Match actual slow motion duration (3 seconds)
+        break
+        
+      case 'slingshot-red':
+        // Red slingshot: 1 super rock ammo (double size, indestructible, straight up)
+        this.rockAmmo.push({ type: 'red', ammo: 1 })
+        // Only show indicator if we don't already have one (to prevent it from being removed by other powerups)
+        if (!this.powerUpIndicators.has('super-rock')) {
+          this.showPowerUpIndicator('Super Rock', 0)  // No duration, shows until ammo is used
+        }
+        this.updateAmmoDisplay()
+        break
+        
+      case 'slingshot-green':
+        // Green slingshot: Auto Throw - 2x fire rate, automatic, lasts 3 seconds
+        // Cancel existing auto-fire if active
+        if (this.autoFireTimer) {
+          this.autoFireTimer.remove(false)
+          this.autoFireTimer = undefined
+        }
+        this.isAutoFireActive = true
+        this.autoFireLastShot = 0
+        this.autoFireStartTime = this.time.now
+        
+        // Show indicator with 3 second timer
+        this.showPowerUpIndicator('Auto Throw', 3000)
+        
+        // Set timer to disable auto-fire after 3 seconds
+        this.autoFireTimer = this.time.delayedCall(3000, () => {
+          this.isAutoFireActive = false
+          this.autoFireTimer = undefined
+          this.updateAmmoDisplay()  // Remove timer bar
+        }, [], this)
+        
+        this.updateAmmoDisplay()
         break
     }
   }
@@ -6123,37 +6433,43 @@ export class MainScene extends Phaser.Scene {
     progressBar.setScrollFactor(0)
     progressBar.setDepth(6)
     
-    // Animate progress bar shrinking from right to left
+    // Animate progress bar shrinking from right to left (only if duration > 0)
     const progressData = { width: barWidth }
-    const tween = this.tweens.add({
-      targets: progressData,
-      width: 0,
-      duration: duration,
-      ease: 'Linear',
-      onUpdate: () => {
-        if (progressBar && progressBar.active) {
-          const currentWidth = progressData.width
-          progressBar.clear()
-          progressBar.fillStyle(0x7fb069, 1)
-          const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
-          progressBar.fillRect(barX, barY, clampedWidth, barHeight)
-        }
-        // Fade text as time runs out
-        if (text && text.active) {
-          const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
-          text.setAlpha(progress)
-        }
-      },
-      onComplete: () => {
-        const indicator = this.powerUpIndicators.get(powerUpKey)
-        if (indicator) {
-          indicator.text.destroy()
-          indicator.progressBar.destroy()
-          indicator.progressBarBg.destroy()
-          this.powerUpIndicators.delete(powerUpKey)
-        }
-      },
-    })
+    let tween: Phaser.Tweens.Tween | undefined
+    if (duration > 0) {
+      tween = this.tweens.add({
+        targets: progressData,
+        width: 0,
+        duration: duration,
+        ease: 'Linear',
+        onUpdate: () => {
+          if (progressBar && progressBar.active) {
+            const currentWidth = progressData.width
+            progressBar.clear()
+            progressBar.fillStyle(0x7fb069, 1)
+            const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
+            progressBar.fillRect(barX, barY, clampedWidth, barHeight)
+          }
+          // Fade text as time runs out
+          if (text && text.active) {
+            const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
+            text.setAlpha(progress)
+          }
+        },
+        onComplete: () => {
+          const indicator = this.powerUpIndicators.get(powerUpKey)
+          if (indicator) {
+            indicator.text.destroy()
+            indicator.progressBar.destroy()
+            indicator.progressBarBg.destroy()
+            this.powerUpIndicators.delete(powerUpKey)
+          }
+        },
+      })
+    } else {
+      // Duration 0 means it stays until manually removed (like Super Rock ammo)
+      // Keep progress bar full and text visible
+    }
     
     // Store the indicator
     this.powerUpIndicators.set(powerUpKey, {
@@ -6427,6 +6743,15 @@ export class MainScene extends Phaser.Scene {
       shieldSound.stop()
     }
     
+    // Reset auto-fire
+    if (this.autoFireTimer) {
+      this.autoFireTimer.remove(false)
+      this.autoFireTimer = undefined
+    }
+    this.isAutoFireActive = false
+    this.autoFireStartTime = 0
+    this.autoFireLastShot = 0
+    
     // Reset slow motion
     if (this.slowMotionTimer) {
       this.slowMotionTimer.remove(false)
@@ -6446,6 +6771,18 @@ export class MainScene extends Phaser.Scene {
     }
     this.isInvulnerable = false
     
+    // Clear rock ammo
+    this.rockAmmo = []
+    this.updateAmmoDisplay()
+    
+    // Clear tank hit indicator timers
+    this.tankHitIndicatorTimers.forEach((timer) => {
+      timer.remove(false)
+    })
+    this.tankHitIndicatorTimers.clear()
+    this.tankLastFlipTime.clear()
+    this.jetHitIndicatorActive = false
+    
     // Remove power-up indicators
     // Remove all power-up indicators
     this.powerUpIndicators.forEach((indicator) => {
@@ -6455,6 +6792,120 @@ export class MainScene extends Phaser.Scene {
       indicator.progressBarBg.destroy()
     })
     this.powerUpIndicators.clear()
+  }
+  
+  private updateAmmoDisplay(): void {
+    if (!this.throwButton) return
+    
+    const rockIcon = this.throwButton.getData('rockIcon') as Phaser.GameObjects.Image | undefined
+    if (!rockIcon) return
+    
+    // Determine which rock type is next
+    let nextRockType: 'normal' | 'red' | 'green' = 'normal'
+    if (this.rockAmmo.length > 0 && this.rockAmmo[0].ammo > 0) {
+      nextRockType = this.rockAmmo[0].type
+    }
+    
+    // If auto-fire is active, show green tint
+    if (this.isAutoFireActive) {
+      rockIcon.setTint(0x00ff00)  // Green tint for auto-fire
+    } else {
+      // Update icon based on rock type
+      if (nextRockType === 'normal') {
+        rockIcon.clearTint()
+      } else if (nextRockType === 'red') {
+        rockIcon.setTint(0xff0000)  // Red tint
+      } else if (nextRockType === 'green') {
+        rockIcon.setTint(0x00ff00)  // Green tint
+      }
+    }
+    
+    // Update infinity text to show ammo count if not normal
+    const infinityText = this.throwButton.getData('infinityText') as Phaser.GameObjects.Text | undefined
+    if (infinityText) {
+      if (nextRockType === 'normal' && !this.isAutoFireActive) {
+        infinityText.setText('∞')
+        infinityText.setVisible(true)
+      } else {
+        // Show ammo count
+        const totalAmmo = this.rockAmmo.reduce((sum, entry) => sum + entry.ammo, 0)
+        infinityText.setText(totalAmmo.toString())
+        infinityText.setVisible(true)
+      }
+    }
+    
+    // Update timer bar for auto-fire
+    let timerBar = this.throwButton.getData('timerBar') as Phaser.GameObjects.Graphics | undefined
+    let timerBarBg = this.throwButton.getData('timerBarBg') as Phaser.GameObjects.Graphics | undefined
+    
+    if (this.isAutoFireActive) {
+      // Create timer bar if it doesn't exist
+      if (!timerBarBg) {
+        timerBarBg = this.add.graphics()
+        timerBarBg.setScrollFactor(0)
+        timerBarBg.setDepth(15)
+        this.throwButton.add(timerBarBg)
+        this.throwButton.setData('timerBarBg', timerBarBg)
+      }
+      if (!timerBar) {
+        timerBar = this.add.graphics()
+        timerBar.setScrollFactor(0)
+        timerBar.setDepth(16)
+        this.throwButton.add(timerBar)
+        this.throwButton.setData('timerBar', timerBar)
+      }
+      
+      // Position timer bar below rock icon
+      const rockIconY = rockIcon.y
+      const rockIconHeight = rockIcon.displayHeight
+      const barY = rockIconY + rockIconHeight / 2 + 5  // 5px below rock icon
+      const barWidth = rockIcon.displayWidth * 0.8  // 80% of rock icon width
+      const barHeight = 4
+      const barX = rockIcon.x - barWidth / 2
+      
+      // Calculate remaining time
+      const elapsed = this.time.now - this.autoFireStartTime
+      const duration = 3000
+      const remaining = Math.max(0, duration - elapsed)
+      const progress = remaining / duration
+      
+      
+      // Draw background
+      timerBarBg.clear()
+      timerBarBg.fillStyle(0x2a2a2a, 1)  // Dark background
+      timerBarBg.fillRect(barX, barY, barWidth, barHeight)
+      
+      // Draw progress bar (green)
+      timerBar.clear()
+      timerBar.fillStyle(0x00ff00, 1)  // Green
+      timerBar.fillRect(barX, barY, barWidth * progress, barHeight)
+    } else {
+      // Remove timer bar when auto-fire is not active
+      if (timerBar) {
+        timerBar.destroy()
+        this.throwButton.setData('timerBar', undefined)
+      }
+      if (timerBarBg) {
+        timerBarBg.destroy()
+        this.throwButton.setData('timerBarBg', undefined)
+      }
+    }
+  }
+
+  private handleAutoFire(time: number): void {
+    if (!this.isAutoFireActive || !this.autoFireTimer) {
+      return
+    }
+    
+    // Auto-fire shoots at 2x rate (half the normal fireRate)
+    const autoFireRate = this.fireRate / 2
+    const canFire = time > this.autoFireLastShot + autoFireRate
+    
+    if (canFire && !this.isThrowing && !this.isAiming && !this.isTaunting) {
+      // Trigger a throw automatically
+      this.autoFireLastShot = time
+      this.releaseThrow()
+    }
   }
 
   private startJetShake(): void {
@@ -6813,13 +7264,13 @@ export class MainScene extends Phaser.Scene {
         scoreLabel = `${triangle} Tanks`
       }
     }
-    // Hide "Boycotted:" text during boss level
-    if (this.isBossLevel && (this.bossPhase === 'jet' || this.bossPhase.startsWith('tank'))) {
+    // Hide "Boycotted:" text during boss level or victory phase
+    if (this.isBossLevel && (this.bossPhase === 'jet' || this.bossPhase.startsWith('tank') || this.bossPhase === 'victory')) {
       this.scoreText.setVisible(false)
     } else {
       this.scoreText.setVisible(true)
     }
-    // Make triangle red in boss level score labels
+    // Make triangle red in boss level score labels (but hide during victory)
     if (this.isBossLevel && (this.bossPhase === 'jet' || this.bossPhase.startsWith('tank'))) {
       // Create separate red triangle text object
       const worldWidth = this.scale.width
@@ -6849,7 +7300,7 @@ export class MainScene extends Phaser.Scene {
       // Calculate triangle position immediately and also in delayedCall to ensure it's visible during gameplay
       // First, calculate position immediately using estimated text width
       const estimatedTextWidth = this.scoreText.width || (this.bossPhase === 'jet' ? 40 : 60)
-      const triangleSpacing = 35  // Increased spacing (from 20) to shift triangle further left
+      const triangleSpacing = 50  // Increased spacing to shift triangle further left (from 35 to 50)
       let triangleX = textX - estimatedTextWidth - triangleSpacing
       
       // Update/create triangle immediately so it's visible during gameplay
@@ -6877,21 +7328,23 @@ export class MainScene extends Phaser.Scene {
         })
         this.scoreTriangleText.setOrigin(1, 0)  // Right origin so it attaches to text
         this.scoreTriangleText.setScrollFactor(0)
-        this.scoreTriangleText.setDepth(300)  // Very high depth to ensure it's above everything
+        this.scoreTriangleText.setDepth(500)  // Very high depth (higher than hit indicators at 200) to ensure it's above everything
         this.scoreTriangleText.setScale(2.5)
         this.scoreTriangleText.setVisible(true)  // Ensure triangle is visible
         this.scoreTriangleText.setAlpha(1)  // Ensure full opacity
-        this.children.bringToTop(this.scoreTriangleText)
         this.scoreTriangleText.setActive(true)
+        this.scoreTriangleText.setData('isScoreTriangle', true)  // Mark as score triangle for protection
+        // Don't use bringToTop - fixed depth ensures it stays above everything
       } else {
         // Update position of existing triangle - ensure it's visible and on top
         const tri = existingTri as Phaser.GameObjects.Text
         tri.setPosition(triangleX, scoreY)
         tri.setVisible(true)
         tri.setAlpha(1)
-        tri.setDepth(350)  // Very high depth (higher than hit indicators at 200) to ensure it's above everything
+        tri.setDepth(500)  // Very high depth (higher than hit indicators at 200) to ensure it's above everything
         tri.setActive(true)
-        this.children.bringToTop(tri)
+        tri.setData('isScoreTriangle', true)  // Mark as score triangle for protection
+        // Don't use bringToTop - fixed depth ensures it stays above everything
         tri.setScrollFactor(0)
       }
       
@@ -6910,9 +7363,10 @@ export class MainScene extends Phaser.Scene {
           this.scoreTriangleText.setPosition(triangleX, scoreY)
           this.scoreTriangleText.setVisible(true)
           this.scoreTriangleText.setAlpha(1)
-          this.scoreTriangleText.setDepth(300)
+          this.scoreTriangleText.setDepth(500)
           this.scoreTriangleText.setActive(true)
-          this.children.bringToTop(this.scoreTriangleText)
+          this.scoreTriangleText.setData('isScoreTriangle', true)  // Mark as score triangle for protection
+          // Don't use bringToTop - fixed depth ensures it stays above everything
         } else {
           // Triangle was destroyed - recreate it
           if (this.isBossLevel && (this.bossPhase === 'jet' || this.bossPhase.startsWith('tank'))) {
@@ -6924,15 +7378,22 @@ export class MainScene extends Phaser.Scene {
             })
             this.scoreTriangleText.setOrigin(1, 0)
             this.scoreTriangleText.setScrollFactor(0)
-            this.scoreTriangleText.setDepth(300)
+            this.scoreTriangleText.setDepth(500)
             this.scoreTriangleText.setScale(2.5)
             this.scoreTriangleText.setVisible(true)
             this.scoreTriangleText.setAlpha(1)
-            this.children.bringToTop(this.scoreTriangleText)
             this.scoreTriangleText.setActive(true)
+            this.scoreTriangleText.setData('isScoreTriangle', true)  // Mark as score triangle for protection
+            // Don't use bringToTop - fixed depth ensures it stays above everything
           }
         }
       })
+    } else if (this.isBossLevel && this.bossPhase === 'victory') {
+      // Victory phase - hide score triangle and score text
+      if (this.scoreTriangleText) {
+        this.scoreTriangleText.setVisible(false)
+      }
+      this.scoreText.setVisible(false)
     } else {
       // Regular level - hide triangle text and show normal score
       if (this.scoreTriangleText) {
@@ -7006,6 +7467,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image('powerup-life', getAssetPath('/assets/bittee/life.png'))
     this.load.image('powerup-shield', getAssetPath('/assets/bittee/shield.png'))
     this.load.image('powerup-time', getAssetPath('/assets/bittee/time.png'))
+    this.load.image('powerup-slingshot-red', getAssetPath('/assets/bittee/slingshot-red.png'))
   }
 
   private loadLevelAssets(): void {
@@ -8184,11 +8646,19 @@ export class MainScene extends Phaser.Scene {
       
       // Show destroyed tanks count if in tank phase
       if (this.isBossLevel && this.bossPhase.startsWith('tank') && this.destroyedText) {
-        const tanksText = `${this.tanksDestroyedCount} tank${this.tanksDestroyedCount !== 1 ? 's' : ''}`
+        // Calculate actual destroyed count from tank healths
+        const actualDestroyedCount = this.tankHealths.filter(health => health <= 0).length
+        const tanksText = `${actualDestroyedCount} tank${actualDestroyedCount !== 1 ? 's' : ''}`
         this.destroyedText.setText(`Destroyed 1 jet and ${tanksText}`)
         this.destroyedText.setVisible(true)
-        // Position it appropriately
-        const destroyedY = -20  // Position above score
+        // Position it between title and "Boycotted:" text
+        // Get panelHeight from bgGraphics or calculate it
+        const panelHeight = Math.min(worldHeight * 0.85, 650)
+        const titleY = isGameOver ? -panelHeight / 2 + 90 : -panelHeight / 2 + 60
+        const titleHeight = 80
+        const titleBottom = titleY + titleHeight / 2
+        const scoreLabelY = -60
+        const destroyedY = (titleBottom + scoreLabelY) / 2  // Position between title and "Boycotted:"
         this.destroyedText.setY(destroyedY)
       }
       
@@ -8238,18 +8708,17 @@ export class MainScene extends Phaser.Scene {
         bgGraphics.strokeRoundedRect(-panelWidth / 2, -panelHeight / 2, panelWidth, panelHeight, 28)
       }
 
-      // Calculate positions with equal spacing between title, "Good work!", and "Destroyed 1 jet and 3 tanks"
-      // Shift everything up a bit for victory modal
-      const titleY = -panelHeight / 2 + 40  // Shifted up from 60
+      // Calculate positions - shift "Good work!" and "Boycotted:" down more
+      const titleY = -panelHeight / 2 + 40
       const titleHeight = 80
       const titleBottom = titleY + titleHeight / 2
-      const equalSpacing = 50  // Equal spacing between title, "Good work!", and "Destroyed 1 jet and 3 tanks"
-      const shiftDown = 60  // Increased more to shift "Good work!" down further
+      const spacing = 60  // Spacing between elements
+      const shiftDown = 50  // Additional shift down for "Good work!" and "Boycotted:"
       
-      const goodWorkY = titleBottom + equalSpacing + shiftDown
-      // Position "Destroyed" text between title and "Boycotted:" (between titleBottom and labelY)
-      const labelY = goodWorkY + equalSpacing + 30  // "Boycotted:" position
-      const destroyedY = (titleBottom + labelY) / 2  // Position between title and "Boycotted:"
+      const goodWorkY = titleBottom + spacing + shiftDown
+      // Position "Destroyed" text between "Good work!" and "Boycotted:"
+      const labelY = goodWorkY + spacing + shiftDown  // "Boycotted:" position (shifted down)
+      const destroyedY = (goodWorkY + labelY) / 2  // Position between "Good work!" and "Boycotted:"
 
       if (this.startMessageText) {
         this.startMessageText.setVisible(true)
@@ -8262,11 +8731,15 @@ export class MainScene extends Phaser.Scene {
       this.firstLineText?.setVisible(false)
       this.firstLineUnderline?.setVisible(false)
 
-      if (this.scoreLabelText && this.scoreNumberText) {
-        // Calculate positions first
+        // Hide score text in top right during victory
+        this.scoreText?.setVisible(false)
+        this.scoreTriangleText?.setVisible(false)
+        
+        if (this.scoreLabelText && this.scoreNumberText) {
+        // Calculate positions first - shift "Boycotted:" and number down more
         const boycottY = panelHeight / 2 - 160  // Shifted up more to be above respawn button (from -140 to -160)
-        // Position number between "Boycotted:" and "Now boycott these irl..", shifted up slightly
-        const numberY = (labelY + boycottY) / 2 - 5  // Midpoint between label and boycott text, shifted up 5px
+        // Position number between "Boycotted:" and "Now boycott these irl..", shifted down more
+        const numberY = (labelY + boycottY) / 2 + 20  // Midpoint between label and boycott text, shifted down 20px
 
         this.scoreLabelText.setVisible(true)
         this.scoreLabelText.setY(labelY)
@@ -8288,9 +8761,11 @@ export class MainScene extends Phaser.Scene {
         this.unmuteText?.setVisible(false)
 
         // Add text showing destroyed count - use actual count for tanks if in boss level
-        const tanksText = this.isBossLevel && this.bossPhase.startsWith('tank') 
-          ? `${this.tanksDestroyedCount} tank${this.tanksDestroyedCount !== 1 ? 's' : ''}`
-          : '3 tanks'
+        // Calculate actual destroyed count from tank healths
+        const actualDestroyedCount = this.isBossLevel && this.bossPhase.startsWith('tank')
+          ? this.tankHealths.filter(health => health <= 0).length
+          : 3
+        const tanksText = `${actualDestroyedCount} tank${actualDestroyedCount !== 1 ? 's' : ''}`
         const destroyedTextContent = `Destroyed 1 jet and ${tanksText}`
         if (!this.destroyedText) {
           this.destroyedText = this.add.text(0, destroyedY, destroyedTextContent, {
@@ -8312,7 +8787,8 @@ export class MainScene extends Phaser.Scene {
         }
         // Update text with actual count if in tank phase
         if (this.isBossLevel && this.bossPhase.startsWith('tank')) {
-          const tanksText = `${this.tanksDestroyedCount} tank${this.tanksDestroyedCount !== 1 ? 's' : ''}`
+          const actualCount = this.tankHealths.filter(health => health <= 0).length
+          const tanksText = `${actualCount} tank${actualCount !== 1 ? 's' : ''}`
           this.destroyedText.setText(`Destroyed 1 jet and ${tanksText}`)
         }
         this.destroyedText.setVisible(true)
@@ -8321,33 +8797,19 @@ export class MainScene extends Phaser.Scene {
         if (this.freeFalasteenText) {
           this.freeFalasteenText.setVisible(true)
           this.freeFalasteenText.setText('Now boycott these irl..')
-          // Super dark gray color and larger font
+          // Original styling (reverted from larger/darker)
           this.freeFalasteenText.setStyle({ color: '#1a1a1a', fontFamily: 'MontserratBold', fontSize: '30px' })
           // Add same shadow as "Destroy every..." in start modal
           this.freeFalasteenText.setShadow(1, 1, 'rgba(100, 100, 100, 0.3)', 1)
           this.freeFalasteenText.setY(boycottY)
+          this.freeFalasteenText.setX(0)  // Center horizontally (0 is center of panel)
           this.freeFalasteenText.setOrigin(0.5, 0.5)  // Center the text
 
-          // Create underline for "Now boycott..." - same style as start modal but with title background color
-          if (!this.victoryUnderline) {
-            this.victoryUnderline = this.add.graphics()
-            this.victoryUnderline.setDepth(42)  // Above text
-            this.startPanel?.add(this.victoryUnderline)
+          // Destroy underline completely during victory
+          if (this.victoryUnderline) {
+            this.victoryUnderline.destroy()
+            this.victoryUnderline = undefined
           }
-          this.victoryUnderline.clear()
-          this.victoryUnderline.setVisible(true)
-          
-          const underlineY = boycottY + (this.freeFalasteenText.height / 2) + 4  // 4px below text
-          const underlineWidth = this.freeFalasteenText.width + 10  // Slightly wider than text
-          const titleBgColor = 0x3a3a3a  // Same title background color as all modals
-          
-          // Draw shadow first (slightly offset and darker)
-          this.victoryUnderline.lineStyle(4, 0x000000, 0.2)  // Subtle shadow
-          this.victoryUnderline.lineBetween(-underlineWidth / 2 + 1, underlineY + 1, underlineWidth / 2 + 1, underlineY + 1)
-          
-          // Draw main underline (4px thick, same as start modal)
-          this.victoryUnderline.lineStyle(4, titleBgColor, 1)  // Title background color
-          this.victoryUnderline.lineBetween(-underlineWidth / 2, underlineY, underlineWidth / 2, underlineY)
         }
       }
 
@@ -8738,12 +9200,17 @@ export class MainScene extends Phaser.Scene {
         if (rockIcon) {
           rockIcon.setScale(0.25)
           rockIcon.setAlpha(1)
+          rockIcon.clearTint()  // Clear any tint from previous ammo
         }
         if (infinityText) {
           infinityText.setScale(1)
           infinityText.setAlpha(1)
+          infinityText.setText('∞')  // Reset to infinity
         }
       }
+      
+      // Reset ammo display
+      this.updateAmmoDisplay()
       
       // Resume physics and time
       this.physics.world.resume()
@@ -8949,6 +9416,28 @@ export class MainScene extends Phaser.Scene {
     if (this.bossPhase === 'victory' && this.bossMusic && this.bossMusic.isPlaying) {
       this.bossMusic.stop()
     }
+    
+    // Reset levelText styling if respawning from victory (reset Arabic text to normal boss styling)
+    if (this.bossPhase === 'victory' && this.levelText) {
+      const padding = 24
+      // Reset to normal boss level styling (not centered, not huge)
+      this.levelText.setX(padding)  // Reset to original left position
+      this.levelText.setOrigin(0, 0)  // Reset to original left origin
+      this.levelText.setFontSize('140px')  // Normal boss level size (increased for less pixelation)
+      this.levelText.setScale(2.8)  // Normal boss level scale (reduced for less pixelation)
+      this.levelText.setColor('#7fb069')  // Bright olive green (normal boss color)
+      this.levelText.setY(padding + 10)  // Normal boss level position (shifted down)
+      this.levelText.setX(padding - 10)  // Shift left
+      // Show underline for boss levels
+      if (this.levelUnderline) {
+        this.levelUnderline.setVisible(true)
+        this.levelUnderline.setX(this.levelText.x + this.levelText.width / 2)
+        this.levelUnderline.setY(this.levelText.y + this.levelText.height + 20)
+      }
+      // Reset boss phase to jet so it starts fresh
+      this.bossPhase = 'jet'
+      this.isBossLevel = true  // Keep as boss level
+    }
 
     // FIX: Start background music when game starts (but not during boss level)
     // When respawning, continue existing music instead of restarting
@@ -9080,6 +9569,8 @@ export class MainScene extends Phaser.Scene {
     this.isThrowing = false
     this.isTaunting = false
     this.isJumping = false
+    this.hasDoubleJumped = false
+    this.jumpBufferTime = null  // Reset jump buffer
     this.isCrouching = false
     this.justExitedCrouch = false
     this.isInvulnerable = false
@@ -9633,8 +10124,11 @@ export class MainScene extends Phaser.Scene {
         })
       }
       
-      // FIX: Create triangle indicator above jet when hit
-      this.createEnemyHitIndicator(enemy, 1.2)
+      // FIX: Create triangle indicator above jet when hit (only one per fly-by)
+      if (!this.jetHitIndicatorActive) {
+        this.createEnemyHitIndicator(enemy, 1.2)
+        this.jetHitIndicatorActive = true
+      }
       
       // Play opp hit sound
       this.playSound('opp-hit', 0.25)
@@ -9685,6 +10179,13 @@ export class MainScene extends Phaser.Scene {
       }
       
       // FIX: Create triangle indicator above tank when hit
+      // Remove existing indicator and timer if any
+      const existingTimer = this.tankHitIndicatorTimers.get(tankIndex)
+      if (existingTimer) {
+        existingTimer.remove(false)
+        this.tankHitIndicatorTimers.delete(tankIndex)
+      }
+      this.removeEnemyHitIndicator(enemy)
       this.createEnemyHitIndicator(enemy, 1.2)
       
       // Play opp hit sound
@@ -9711,6 +10212,66 @@ export class MainScene extends Phaser.Scene {
           })
         } else {
           // All tanks destroyed - automatically enter taunt mode, then victory!
+          // Hide level underline when last tank is destroyed
+          if (this.levelUnderline) {
+            this.levelUnderline.setVisible(false)
+          }
+          
+          // Destroy tank health bar immediately when last tank is destroyed
+          for (let i = 0; i < 3; i++) {
+            if (this.tankHealthBars[i]) {
+              this.tankHealthBars[i].destroy()
+              this.tankHealthBars[i] = undefined as unknown as Phaser.GameObjects.Graphics
+            }
+            if (this.tankHealthBarBgs[i]) {
+              this.tankHealthBarBgs[i].destroy()
+              this.tankHealthBarBgs[i] = undefined as unknown as Phaser.GameObjects.Graphics
+            }
+          }
+          
+          // Center Arabic text at top, make it larger, and animate it getting darker
+          if (this.levelText) {
+            const worldWidth = this.scale.width
+            this.levelText.setText('حتى النصر')
+            this.levelText.setFontSize('220px')  // Much larger (increased to 220px as requested)
+            this.levelText.setScale(3.0)  // Adjusted scale to reduce pixelation while keeping size
+            this.levelText.setX(worldWidth / 2)  // Center horizontally
+            this.levelText.setOrigin(0.5, 0)  // Center origin
+            this.levelText.setY(24)  // Top padding
+            this.levelText.setColor('#7fb069')  // Start with bright olive green
+            
+            // Animate text getting darker over time until victory modal shows
+            // Start from bright olive green (#7fb069) and fade to dark olive green (#4a5d3f)
+            // Use manual color interpolation since Phaser doesn't support color tweening directly
+            const startColorObj = Phaser.Display.Color.ValueToColor(0x7fb069)
+            const endColorObj = Phaser.Display.Color.ValueToColor(0x4a5d3f)  // Dark olive green
+            // Access RGB properties from the Color object
+            const startR = (startColorObj as any).r ?? ((startColorObj as any).color >> 16) & 0xff
+            const startG = (startColorObj as any).g ?? ((startColorObj as any).color >> 8) & 0xff
+            const startB = (startColorObj as any).b ?? (startColorObj as any).color & 0xff
+            const endR = (endColorObj as any).r ?? ((endColorObj as any).color >> 16) & 0xff
+            const endG = (endColorObj as any).g ?? ((endColorObj as any).color >> 8) & 0xff
+            const endB = (endColorObj as any).b ?? (endColorObj as any).color & 0xff
+            const colorData = { r: startR, g: startG, b: startB }
+            
+            this.tweens.add({
+              targets: colorData,
+              r: endR,
+              g: endG,
+              b: endB,
+              duration: 2000,  // 2 seconds to fade to black
+              ease: 'Linear',
+              onUpdate: () => {
+                const colorValue = Phaser.Display.Color.GetColor(
+                  Math.round(colorData.r),
+                  Math.round(colorData.g),
+                  Math.round(colorData.b)
+                )
+                this.levelText.setColor(`#${colorValue.toString(16).padStart(6, '0')}`)
+              },
+            })
+          }
+          
           // FIX: Enter taunt mode when final tank (tank3, index 2) is destroyed
           // Force taunt mode immediately - don't wait for ground check
           const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
@@ -10027,6 +10588,24 @@ export class MainScene extends Phaser.Scene {
       if (directionChanged) {
         // Direction changed and lock expired - set new lock time and flip
         this.tankDirectionLockTimes[tankIndex] = currentTime + flipDelay
+        // Track flip time for hit indicator removal
+        this.tankLastFlipTime.set(tankIndex, currentTime)
+        
+        // Remove hit indicator a couple seconds after flip
+        const tank = this.tanks[tankIndex]
+        if (tank && tank.active) {
+          // Cancel existing timer if any
+          const existingTimer = this.tankHitIndicatorTimers.get(tankIndex)
+          if (existingTimer) {
+            existingTimer.remove(false)
+          }
+          // Create new timer to remove indicator after 2 seconds
+          const removeTimer = this.time.delayedCall(2000, () => {
+            this.removeEnemyHitIndicator(tank)
+            this.tankHitIndicatorTimers.delete(tankIndex)
+          })
+          this.tankHitIndicatorTimers.set(tankIndex, removeTimer)
+        }
       }
       
       // Flip sprite based on direction
@@ -10087,6 +10666,27 @@ export class MainScene extends Phaser.Scene {
 
   private startVictoryPhase(): void {
     this.bossPhase = 'victory'
+    
+    // Hide score text in top right during victory celebration
+    this.scoreText?.setVisible(false)
+    this.scoreTriangleText?.setVisible(false)
+    
+    // Ensure level underline is hidden during victory
+    if (this.levelUnderline) {
+      this.levelUnderline.setVisible(false)
+    }
+    
+    // Ensure Arabic text is large, dark, and centered at top
+    if (this.levelText) {
+      const worldWidth = this.scale.width
+      this.levelText.setText('حتى النصر')
+      this.levelText.setFontSize('220px')  // Much larger (increased to 220px as requested)
+      this.levelText.setScale(3.0)  // Adjusted scale to reduce pixelation while keeping size
+      this.levelText.setX(worldWidth / 2)
+      this.levelText.setOrigin(0.5, 0)
+      this.levelText.setY(24)
+      this.levelText.setColor('#4a5d3f')  // Dark olive green
+    }
     
     // Stop final level music and start celebration music (palestine-8bit)
     if (this.bossMusic && this.bossMusic.isPlaying) {
@@ -10442,6 +11042,13 @@ export class MainScene extends Phaser.Scene {
               this.jet.setX(worldWidth + offScreenDistance)
               this.jet.setY(this.jetY)
               
+              // Reset hit indicator flag for new fly-by
+              this.jetHitIndicatorActive = false
+              // Remove any existing hit indicator when jet turns around
+              if (this.jet) {
+                this.removeEnemyHitIndicator(this.jet)
+              }
+              
               // Start continuous camera shake while jet is on screen
               this.startJetShake()
               
@@ -10517,6 +11124,13 @@ export class MainScene extends Phaser.Scene {
               this.jet.setVelocityX(this.jetSpeed)
               this.jet.setX(-offScreenDistance)
               this.jet.setY(this.jetY)
+              
+              // Reset hit indicator flag for new fly-by
+              this.jetHitIndicatorActive = false
+              // Remove any existing hit indicator when jet turns around
+              if (this.jet) {
+                this.removeEnemyHitIndicator(this.jet)
+              }
               
               // Start continuous camera shake while jet is on screen
               this.startJetShake()
@@ -11267,17 +11881,31 @@ export class MainScene extends Phaser.Scene {
     this.aimingTriangles.clear()
     
     // FIX: Also clean up any orphaned triangles in the scene
+    // IMPORTANT: Protect scoreTriangleText and enemyHitIndicators
+    const scoreTriangleRef = this.scoreTriangleText
+    const enemyHitIndicatorRefs = new Set(Array.from(this.enemyHitIndicators.values()))
+    
     this.children.list.forEach((child) => {
       if (child instanceof Phaser.GameObjects.Text) {
         const text = child as Phaser.GameObjects.Text
         // Check if this text is a triangle (contains the triangle emoji)
         if (text.text && text.text.includes('\u25BC')) {
+          // Don't destroy scoreTriangleText or enemyHitIndicators
+          const isScoreTriangle = text === scoreTriangleRef
+          const isEnemyHitIndicator = enemyHitIndicatorRefs.has(text) || text.getData('isEnemyHitIndicator') === true
+          if (isScoreTriangle || isEnemyHitIndicator) {
+            return  // Skip this triangle - it's protected
+          }
+          
           // Check if it's NOT in our Maps
           let foundInMap = false
           this.aimingTriangles.forEach((tri) => {
             if (tri === text) foundInMap = true
           })
           this.projectedHitIndicators.forEach((ind) => {
+            if (ind === text) foundInMap = true
+          })
+          this.enemyHitIndicators.forEach((ind) => {
             if (ind === text) foundInMap = true
           })
           
@@ -11298,15 +11926,20 @@ export class MainScene extends Phaser.Scene {
   private clearAllTriangles(): void {
     // FIX: Find ALL triangle text objects in the scene, not just ones in Maps
     // This catches orphaned triangles that aren't in the Maps
+    // IMPORTANT: Protect scoreTriangleText and enemyHitIndicators from being destroyed
+    const scoreTriangleRef = this.scoreTriangleText  // Store reference to protect it
+    const enemyHitIndicatorRefs = new Set(Array.from(this.enemyHitIndicators.values()))  // Store all enemy hit indicators
+    
     this.children.list.forEach((child) => {
       if (child instanceof Phaser.GameObjects.Text) {
         const text = child as Phaser.GameObjects.Text
         // Check if this text is a triangle (contains the triangle emoji)
         if (text.text && text.text.includes('\u25BC')) {
-          // Don't destroy scoreTriangleText (HUD element for boss levels)
-          const isScoreTriangle = text === this.scoreTriangleText
-          if (isScoreTriangle) {
-            return
+          // Don't destroy scoreTriangleText (HUD element for boss levels) or enemy hit indicators
+          const isScoreTriangle = text === scoreTriangleRef || text.getData('isScoreTriangle') === true
+          const isEnemyHitIndicator = enemyHitIndicatorRefs.has(text) || text.getData('isEnemyHitIndicator') === true
+          if (isScoreTriangle || isEnemyHitIndicator) {
+            return  // Skip this triangle - it's protected
           }
           
           // Check if it's NOT in our Maps
@@ -11375,14 +12008,20 @@ export class MainScene extends Phaser.Scene {
     this.bulletTargetMap.clear()
     
     // FIX: Double-check for any remaining triangles after clearing Maps
+    // But protect scoreTriangleText and enemyHitIndicators (reuse variables declared at top of function)
     this.children.list.forEach((child) => {
       if (child instanceof Phaser.GameObjects.Text) {
         const text = child as Phaser.GameObjects.Text
         if (text.text && text.text.includes('\u25BC') && text.active) {
-          try {
-            text.destroy()
-          } catch (e) {
-            // Ignore errors
+          // Don't destroy scoreTriangleText or enemyHitIndicators
+          const isScoreTriangle = text === scoreTriangleRef || text.getData('isScoreTriangle') === true
+          const isEnemyHitIndicator = enemyHitIndicatorRefs.has(text) || text.getData('isEnemyHitIndicator') === true
+          if (!isScoreTriangle && !isEnemyHitIndicator) {
+            try {
+              text.destroy()
+            } catch (e) {
+              // Ignore errors
+            }
           }
         }
       }
@@ -11452,23 +12091,24 @@ export class MainScene extends Phaser.Scene {
     // Remove existing indicator for this enemy if any
     this.removeEnemyHitIndicator(enemy)
     
-    // FIX: Position triangle higher up and ensure it's visible
-    // Use a larger offset to position it well above the enemy
-    const triangleY = Math.max(40, enemy.y - enemy.displayHeight / 2 - 100)  // Increased offset to 100px for better visibility, clamped to at least 40px from top
+    // Position triangle above enemy - closer for jet, further for tanks
+    const enemyType = enemy.getData('enemyType')
+    const offsetY = enemyType === 'jet' ? 60 : 100  // Closer to jet (60px), further from tanks (100px)
+    const triangleY = Math.max(40, enemy.y - enemy.displayHeight / 2 - offsetY)
     
-    // Create red triangle above enemy - 50% larger than ball hit indicators
-    // Ball indicators use scale 1.2, so enemy indicators use 1.8 (1.2 * 1.5)
+    // Create red triangle above enemy - 25% smaller than before (was 1.8, now 1.35)
     const triangle = this.add.text(enemy.x, triangleY, '\u25BC\ufe0f', {
-      fontSize: '42px',  // 50% larger than 28px (28 * 1.5 = 42)
+      fontSize: '32px',  // Reduced from 42px (25% smaller)
       fontFamily: 'MontserratBold',
       color: '#ff0000', // Red color
     })
     triangle.setOrigin(0.5, 0.5)
-    triangle.setDepth(200) // Lower than scoreTriangleText (350) to ensure separation
+    triangle.setDepth(200) // Lower than scoreTriangleText (500) to ensure separation
     triangle.setScrollFactor(0) // Fixed to camera
-    triangle.setScale(1.8)  // 50% larger than ball indicators (1.2 * 1.5 = 1.8)
+    triangle.setScale(1.35)  // Reduced from 1.8 (25% smaller: 1.8 * 0.75 = 1.35)
     triangle.setVisible(true)
     triangle.setAlpha(1)  // Ensure full opacity
+    triangle.setData('isEnemyHitIndicator', true)  // Mark as enemy hit indicator for protection
     
     this.enemyHitIndicators.set(enemy, triangle)
     
@@ -11487,10 +12127,11 @@ export class MainScene extends Phaser.Scene {
     const updatePosition = () => {
       if (triangle && triangle.scene && enemy && enemy.active && enemy.scene) {
         // Ensure triangle stays above enemy, but clamp Y to be visible (not negative)
-        const newY = Math.max(40, enemy.y - enemy.displayHeight / 2 - 100)  // Increased offset to 100px for better visibility
+        const enemyType = enemy.getData('enemyType')
+        const offsetY = enemyType === 'jet' ? 60 : 100  // Closer to jet, further from tanks
+        const newY = Math.max(40, enemy.y - enemy.displayHeight / 2 - offsetY)
         // For tanks, account for flipX - position triangle above center regardless of flip
         // For jet, just use center X
-        const enemyType = enemy.getData('enemyType')
         let newX = enemy.x
         if (enemyType === 'tank' && enemy.flipX) {
           // Tank is flipped - triangle should still be centered above tank
@@ -11554,6 +12195,12 @@ export class MainScene extends Phaser.Scene {
           })
           
           // FIX: If not in Maps OR if it's in the problematic zone (ground to head level)
+          // Don't destroy scoreTriangleText or enemy hit indicators
+          const isScoreTriangle = text === this.scoreTriangleText || text.getData('isScoreTriangle') === true
+          const isEnemyHitIndicator = Array.from(this.enemyHitIndicators.values()).includes(text) || text.getData('isEnemyHitIndicator') === true
+          if (isScoreTriangle || isEnemyHitIndicator) {
+            return  // Skip this triangle - it's protected
+          }
           const inProblemZone = textY >= playerHeadYForOrphanCleanup && textY <= playerYForOrphanCleanup + 50
           if ((!foundInMap || inProblemZone) && text.scene && text.active) {
             // Double-check it's really orphaned by checking if any ball is near it
