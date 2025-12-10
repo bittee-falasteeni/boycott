@@ -4788,7 +4788,7 @@ export class MainScene extends Phaser.Scene {
       // Set position to current position (or ground if on ground) - don't force position change
       // CRITICAL: Skip position adjustments during crouch exit transition to prevent jittering
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
-      if (body && this.isPlayerGrounded(body) && !this.isCrouching && !this.isTransitioning && !this.justExitedCrouch) {
+      if (body && this.isPlayerGrounded(body) && !this.isCrouching) {
         // Add 10px visual offset for stand pose - sprite appears 10px lower
         // This is PURELY visual - physics body stays at normal position
         const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
@@ -4903,9 +4903,11 @@ export class MainScene extends Phaser.Scene {
     
     const leftDown = (this.cursors.left?.isDown ?? false) || this.touchLeft
     const rightDown = (this.cursors.right?.isDown ?? false) || this.touchRight
-    const crouchPressed = (this.cursors.down?.isDown ?? false) || this.touchDown
+    const downDown = (this.cursors.down?.isDown ?? false) || this.touchDown
+    const crouchPressed = downDown
     const upDown = (this.cursors.up?.isDown ?? false) || this.touchUp
-    const fireDown = (this.cursors.space?.isDown ?? false) || this.touchFire
+    const fireDown = (this.fireKey?.isDown ?? false) || this.touchThrow
+    const isOnGround = this.isPlayerGrounded(body)
     
     // Safety reset: Clear stuck transition flags when player presses any button
     if (leftDown || rightDown || crouchPressed || upDown || fireDown) {
@@ -4927,14 +4929,6 @@ export class MainScene extends Phaser.Scene {
       body.setVelocityY(0)
       return  // Don't process any movement during transition
     }
-
-    const leftDown = (this.cursors.left?.isDown ?? false) || this.touchLeft
-    const rightDown = (this.cursors.right?.isDown ?? false) || this.touchRight
-    const downDown = (this.cursors.down?.isDown ?? false) || this.touchDown
-    const crouchPressed = downDown
-    const upDown = (this.cursors.up?.isDown ?? false) || this.touchUp
-    const fireDown = (this.fireKey?.isDown ?? false) || this.touchThrow
-    const isOnGround = this.isPlayerGrounded(body)
 
     if (this.isThrowing) {
       this.player.setVelocityX(0)
@@ -5108,6 +5102,7 @@ export class MainScene extends Phaser.Scene {
                                currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
             // Force animation change if not already running left
             // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
+            // Allow transition even if isTransitioning (safety reset handles stuck flags)
             if (currentAnim !== 'bittee-run-left' && !isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
               this.player.anims.play('bittee-run-left', true)
               // NEW: Let postUpdate() handle positioning - just ensure body is enabled
@@ -5151,6 +5146,7 @@ export class MainScene extends Phaser.Scene {
                                currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
             // Force animation change if not already running right
             // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
+            // Allow transition even if isTransitioning (safety reset handles stuck flags)
             if (currentAnim !== 'bittee-run-right' && !isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
               this.player.anims.play('bittee-run-right', true)
               // NEW: Let postUpdate() handle positioning - just ensure body is enabled
@@ -9602,6 +9598,20 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
+    // Reset player position to center and clear transition flags
+    if (this.player) {
+      const worldWidth = this.scale.width
+      this.player.setX(worldWidth / 2)
+      const body = this.player.body as Phaser.Physics.Arcade.Body | null
+      if (body) {
+        body.x = worldWidth / 2
+      }
+      // Clear any stuck transition flags
+      this.isTransitioning = false
+      this.justExitedCrouch = false
+      this.transitionFrameCount = 0
+    }
+    
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
     // After clearing, if we're in a boss level, the triangle will be recreated in updateHud
