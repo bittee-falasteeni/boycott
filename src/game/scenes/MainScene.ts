@@ -6110,7 +6110,10 @@ export class MainScene extends Phaser.Scene {
       if (isOnGround) {
         this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
         if (body) {
-          body.updateFromGameObject()
+          body.y = this.groundYPosition - (body.height / 2)
+          // Ensure X position is preserved
+          body.x = restoreX
+          this.player.x = restoreX
         }
       }
       // Otherwise, keep his current Y position (he's in the air)
