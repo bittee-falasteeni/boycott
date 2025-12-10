@@ -5103,7 +5103,9 @@ export class MainScene extends Phaser.Scene {
             // Force animation change if not already running left
             // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
             // Allow transition even if isTransitioning (safety reset handles stuck flags)
-            if (currentAnim !== 'bittee-run-left' && !isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
+            // FIX: Force animation to play if we're moving - don't rely on currentAnim check which might fail initially
+            if (!isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
+              // Always play run animation when moving left (even if already playing, ensures it's active)
               this.player.anims.play('bittee-run-left', true)
               // NEW: Let postUpdate() handle positioning - just ensure body is enabled
               if (body) {
@@ -5147,7 +5149,9 @@ export class MainScene extends Phaser.Scene {
             // Force animation change if not already running right
             // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
             // Allow transition even if isTransitioning (safety reset handles stuck flags)
-            if (currentAnim !== 'bittee-run-right' && !isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
+            // FIX: Force animation to play if we're moving - don't rely on currentAnim check which might fail initially
+            if (!isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
+              // Always play run animation when moving right (even if already playing, ensures it's active)
               this.player.anims.play('bittee-run-right', true)
               // NEW: Let postUpdate() handle positioning - just ensure body is enabled
               if (body) {
