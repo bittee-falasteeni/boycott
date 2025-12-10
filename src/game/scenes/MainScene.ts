@@ -5233,6 +5233,13 @@ export class MainScene extends Phaser.Scene {
     const jumpJustPressed =
       (this.cursors.up ? Phaser.Input.Keyboard.JustDown(this.cursors.up) : false) || this.touchUpJustPressed
     const onGround = this.isPlayerGrounded(body)
+    
+    // Safety reset: Clear stuck transition flags when jump is pressed
+    if (jumpJustPressed && (this.isTransitioning || this.justExitedCrouch)) {
+      this.isTransitioning = false
+      this.justExitedCrouch = false
+      this.transitionFrameCount = 0
+    }
 
     if (this.isTaunting) {
       if (jumpJustPressed) {
