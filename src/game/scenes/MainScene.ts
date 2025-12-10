@@ -1410,7 +1410,7 @@ export class MainScene extends Phaser.Scene {
    * Called via physics world 'worldstep' event
    */
   postUpdate(): void {
-    // Simple sprite-body sync
+    // Simple sprite-body sync with ground locking
     if (!this.isGameActive || this.isPausedForSettings || this.isPausedForDeath) {
       return
     }
@@ -1420,14 +1420,31 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
-    // During jumps: sprite follows body
+    // During jumps: sprite follows body (physics controls movement)
     if (this.isJumping) {
       this.player.x = body.x
       this.player.y = body.y + (body.height / 2)
       return
     }
 
-    // Grounded: sync sprite to body with visual offset for idle
+    // Grounded: lock body to ground level, then sync sprite
+    const bodyBottomY = this.groundYPosition
+    const bodyCenterY = bodyBottomY - (body.height / 2)
+    
+    if (this.isCrouching) {
+      // During crouch: body is disabled, just position it
+      body.y = bodyCenterY
+      this.player.x = body.x
+      this.player.y = bodyBottomY
+      return
+    }
+    
+    // Lock body to ground level
+    body.y = bodyCenterY
+    body.setVelocityY(0)
+    body.setAllowGravity(false)
+
+    // Apply visual offset for idle pose
     let visualOffsetY = 0
     if (!this.isThrowing && !this.isTaunting && !this.isTransitioning && !this.justExitedCrouch) {
       const currentAnim = this.player.anims.currentAnim?.key
@@ -1436,6 +1453,7 @@ export class MainScene extends Phaser.Scene {
       }
     }
     
+    // Sync sprite to body
     this.player.x = body.x
     this.player.y = body.y + (body.height / 2) + visualOffsetY
   }
@@ -5166,32 +5184,18 @@ export class MainScene extends Phaser.Scene {
         this.runSoundPlaying = false
       }
       
-      // If in idle pose, ensure body is disabled and position is locked
-      // This prevents any drift when not moving
+      // If in idle pose, just ensure body is enabled - postUpdate() handles positioning
       const currentAnim = this.player.anims.currentAnim?.key
       const isIdleAnim = currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand'
       if (isIdleAnim && body && this.isPlayerGrounded(body) && !this.isCrouching && !this.isJumping) {
-        // NEW APPROACH: Keep body enabled, just freeze it
-        // Lock positions
-        const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-        const standPoseY = groundFeetY + 10
-        this.player.setY(standPoseY)
-        this.player.setX(this.player.x)  // Lock X position
-        
-        // Keep body enabled but frozen
+        // Just ensure body is enabled - postUpdate() will position it correctly
         if (!body.enable) {
           body.enable = true
         }
-        body.setImmovable(true)
+        body.setImmovable(false)  // Allow postUpdate to position it
         body.setAllowGravity(false)
-        body.setVelocity(0, 0)
-        body.setAcceleration(0, 0)
-        
-        // NOTE: Body position sync is handled in postUpdate() which runs AFTER physics step
-        // This ensures body position is correct even after Phaser recalculates it incorrectly
-        // We still set it here to minimize drift, but postUpdate() is the final authority
-        body.x = this.player.x
-        body.y = standPoseY  // Match sprite position
+        body.setVelocityX(0)
+        body.setVelocityY(0)
       }
         // When we release movement on the ground and we're not jumping,
         // always return to the default standing idle pose instead of
