@@ -1471,10 +1471,10 @@ export class MainScene extends Phaser.Scene {
     body.setAllowGravity(true)  // Keep enabled for ground detection
 
     // Sync sprite to body - ensure feet are at ground level for all states
-    // Use consistent calculation: body bottom = groundYPosition, sprite center = body center
-    const spriteCenterY = body.y + (body.height / 2)
+    // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
+    // Body bottom should be at groundYPosition, so set sprite Y directly to groundYPosition
     this.player.x = body.x
-    this.player.y = spriteCenterY  // Consistent positioning for all states
+    this.player.y = this.groundYPosition  // Feet at ground level for all grounded states (idle, running, taunting)
   }
 
   update(time: number): void {
@@ -4903,7 +4903,7 @@ export class MainScene extends Phaser.Scene {
       this.setupPlayerCollider(0)
       
       if (isOnGround) {
-        this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+        this.player.setY(this.groundYPosition)  // Feet at ground level
         if (body) {
           body.y = this.groundYPosition - (body.height / 2)
           // Ensure X position is preserved
@@ -6102,7 +6102,7 @@ export class MainScene extends Phaser.Scene {
       this.setupPlayerCollider(0)
       
       if (isOnGround) {
-        this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+        this.player.setY(this.groundYPosition)  // Feet at ground level
         if (body) {
           body.y = this.groundYPosition - (body.height / 2)
           // Ensure X position is preserved
@@ -8016,7 +8016,7 @@ export class MainScene extends Phaser.Scene {
     }
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     this.setupPlayerCollider(0)
-    this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+    this.player.setY(this.groundYPosition)  // Feet at ground level (same as other grounded states)
 
     if (playIdle) {
       this.setIdlePose(true)
@@ -10083,7 +10083,7 @@ export class MainScene extends Phaser.Scene {
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     this.setupPlayerCollider(0)
     // Ensure Bittee is positioned correctly on ground for taunt
-    this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+    this.player.setY(this.groundYPosition)  // Feet at ground level (same as other grounded states)
     if (body) {
       this.syncPlayerBodyPosition()
     }
@@ -11611,7 +11611,15 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
-    const sound = this.soundEffects.get(key)
+    // Try to get sound from map first
+    let sound = this.soundEffects.get(key)
+    
+    // If not in map, try to get it directly from sound manager (for sounds that might not be in map)
+    if (!sound && this.cache.audio.exists(key)) {
+      sound = this.sound.add(key, { volume: key === 'ball-bounce' ? 0.25 : 0.7 })
+      this.soundEffects.set(key, sound)
+    }
+    
     if (sound && sound instanceof Phaser.Sound.BaseSound) {
       // Sound effects base volume: ball-bounce is 25% (0.25), others are 70% (0.7)
       const baseVolume = key === 'ball-bounce' ? 0.25 : 0.7
