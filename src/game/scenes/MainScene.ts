@@ -1445,14 +1445,18 @@ export class MainScene extends Phaser.Scene {
     // Gravity stays enabled for collision detection, but immovable prevents movement
     const currentAnim = this.player.anims.currentAnim?.key
     const isRunning = currentAnim === 'bittee-run-left' || currentAnim === 'bittee-run-right'
+    const isIdle = (currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
     
+    // Always lock Y position to ground
     body.y = bodyCenterY
     body.setVelocityY(0)
     
-    // Only lock X and set immovable when idle (not running)
-    if (!isRunning && !this.isThrowing && !this.isTaunting) {
+    // Only lock X and set immovable when truly idle (not running/throwing/taunting/crouching)
+    if (isIdle && !isRunning) {
       body.setVelocityX(0)  // Lock X to prevent drift when idle
       body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
+      // Also lock body X position to prevent any drift
+      body.x = this.player.x
     } else {
       body.setImmovable(false)  // Allow movement when running/throwing/taunting
     }
@@ -4869,7 +4873,8 @@ export class MainScene extends Phaser.Scene {
     // Use a delayed call to reset everything properly
     this.time.delayedCall(200, () => {
       const body = this.player.body as Phaser.Physics.Arcade.Body
-      // Keep Bittee at current X position
+      // Restore X position from when crouch started
+      const restoreX = this.crouchStartX
       // Only move Y to ground if he's on the ground, otherwise keep his current Y position (if in air)
       const isOnGround = body && (body.blocked.down || body.touching.down || body.onFloor())
       
@@ -4893,6 +4898,9 @@ export class MainScene extends Phaser.Scene {
         body.setAllowGravity(true)
         body.setVelocity(0, 0)
         body.setAcceleration(0, 0)
+        // Restore X position to where crouch started
+        body.x = restoreX
+        this.player.x = restoreX
       }
       
       // Update collision box to match standing sprite size
@@ -4901,7 +4909,10 @@ export class MainScene extends Phaser.Scene {
       if (isOnGround) {
         this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
         if (body) {
-          body.updateFromGameObject()
+          body.y = this.groundYPosition - (body.height / 2)
+          // Ensure X position is preserved
+          body.x = restoreX
+          this.player.x = restoreX
         }
       }
       // Otherwise, keep his current Y position (he's in the air)
@@ -5008,6 +5019,9 @@ export class MainScene extends Phaser.Scene {
         // shortly after can be boosted.
         this.lastCrouchTime = this.time.now
         
+        // Store X position to restore on exit
+        this.crouchStartX = this.player.x
+        
         // NEW: Position body at ground level (body is source of truth)
         // Visually shrink Bittee while crouching (scale down to 85%)
         this.player.setScale(this.basePlayerScale * 0.85)
@@ -5015,9 +5029,10 @@ export class MainScene extends Phaser.Scene {
         // Update collision box to match crouched sprite size
         this.setupPlayerCollider(0)
         
-        // Position body at ground level
+        // Position body at ground level, preserving X position
         const bodyBottomY = this.groundYPosition
         if (body) {
+          body.x = this.crouchStartX  // Preserve X position
           body.y = bodyBottomY - (body.height / 2)
           // Disable body during crouch to prevent physics interference
           body.enable = false
@@ -5026,6 +5041,8 @@ export class MainScene extends Phaser.Scene {
           body.setVelocity(0, 0)
           body.setAcceleration(0, 0)
         }
+        // Preserve sprite X position
+        this.player.x = this.crouchStartX
         
         // Sprite position will be set in postUpdate() to match body
       }
