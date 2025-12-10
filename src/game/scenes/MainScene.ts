@@ -1441,13 +1441,23 @@ export class MainScene extends Phaser.Scene {
     
     // Lock body to ground level
     // CRITICAL: Keep gravity enabled so ground detection (blocked.down) works for jumps
-    // Make body immovable to prevent physics from moving it (prevents bobbing)
+    // Make body immovable when idle to prevent physics from moving it (prevents bobbing)
     // Gravity stays enabled for collision detection, but immovable prevents movement
+    const currentAnim = this.player.anims.currentAnim?.key
+    const isRunning = currentAnim === 'bittee-run-left' || currentAnim === 'bittee-run-right'
+    
     body.y = bodyCenterY
     body.setVelocityY(0)
-    body.setVelocityX(0)  // Also lock X to prevent drift
+    
+    // Only lock X and set immovable when idle (not running)
+    if (!isRunning && !this.isThrowing && !this.isTaunting) {
+      body.setVelocityX(0)  // Lock X to prevent drift when idle
+      body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
+    } else {
+      body.setImmovable(false)  // Allow movement when running/throwing/taunting
+    }
+    
     body.setAllowGravity(true)  // Keep enabled for ground detection
-    body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
 
     // Apply visual offset for idle pose
     let visualOffsetY = 0
@@ -5146,10 +5156,10 @@ export class MainScene extends Phaser.Scene {
             if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
               // Directly play animation like throwing does - no complex currentAnim checks
               this.player.anims.play('bittee-run-right', true)
-              // Ensure body is enabled
+              // Ensure body is enabled and movable for running
               if (body) {
                 body.enable = true
-                body.setImmovable(false)
+                body.setImmovable(false)  // Allow movement when running
                 body.setAllowGravity(true)
               }
             }
