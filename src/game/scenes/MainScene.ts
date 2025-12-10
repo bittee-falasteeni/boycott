@@ -1509,33 +1509,12 @@ export class MainScene extends Phaser.Scene {
       }
     }
     
-    // NEW: Lock body to ground during crouch
-    // Body is disabled during crouch, but we still position it correctly
-    if (this.isCrouching && !this.isTransitioning) {
+    // Let postUpdate() handle ALL positioning - it runs after physics step
+    // Just ensure body is enabled when needed
+    if (!this.isCrouching && !this.isJumping && !this.isThrowing && !this.isTaunting && !this.isTransitioning) {
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
-      if (body) {
-        // Lock body to ground level
-        const bodyBottomY = this.groundYPosition
-        body.y = bodyBottomY - (body.height / 2)
-        // Sprite position will be set in postUpdate()
-      }
-    }
-    
-    // NEW: Let postUpdate() handle ALL positioning - don't set body position here
-    // postUpdate() runs after physics step and is the final authority
-    // Just ensure body is enabled for idle poses (postUpdate will position it)
-    if (!this.isCrouching && !this.isJumping && !this.isThrowing && !this.isTaunting && !this.isTransitioning && !this.justExitedCrouch) {
-      const currentAnim = this.player.anims.currentAnim?.key
-      const isIdleAnim = currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand'
-      if (isIdleAnim) {
-        const body = this.player.body as Phaser.Physics.Arcade.Body | null
-        if (body && this.isPlayerGrounded(body)) {
-          // Just ensure body is enabled - postUpdate() will position it correctly
-          if (!body.enable) {
-            body.enable = true
-          }
-          // Don't set position here - let postUpdate() handle it
-        }
+      if (body && !body.enable) {
+        body.enable = true
       }
     }
     
@@ -4922,8 +4901,24 @@ export class MainScene extends Phaser.Scene {
       return
     }
     
+    const leftDown = (this.cursors.left?.isDown ?? false) || this.touchLeft
+    const rightDown = (this.cursors.right?.isDown ?? false) || this.touchRight
+    const crouchPressed = (this.cursors.down?.isDown ?? false) || this.touchDown
+    const upDown = (this.cursors.up?.isDown ?? false) || this.touchUp
+    const fireDown = (this.cursors.space?.isDown ?? false) || this.touchFire
+    
+    // Safety reset: Clear stuck transition flags when player presses any button
+    if (leftDown || rightDown || crouchPressed || upDown || fireDown) {
+      if (this.isTransitioning || this.justExitedCrouch) {
+        this.isTransitioning = false
+        this.justExitedCrouch = false
+        this.transitionFrameCount = 0
+      }
+    }
+    
     // CRITICAL: Lock position during crouch exit transition - prevent any movement
-    if (this.isTransitioning && this.justExitedCrouch && this.transitionTargetY > 0) {
+    // But only if no buttons are pressed (safety reset above handles button presses)
+    if (this.isTransitioning && this.justExitedCrouch && this.transitionTargetY > 0 && !leftDown && !rightDown && !crouchPressed && !upDown && !fireDown) {
       const targetY = this.transitionTargetY
       this.player.setY(targetY)
       body.x = this.player.x
@@ -9992,6 +9987,13 @@ export class MainScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
     if (!body) {
       return
+    }
+
+    // Safety reset: Clear stuck transition flags when taunt is pressed
+    if (this.isTransitioning || this.justExitedCrouch) {
+      this.isTransitioning = false
+      this.justExitedCrouch = false
+      this.transitionFrameCount = 0
     }
 
     // If already taunting, toggle it off
