@@ -1440,9 +1440,11 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Lock body to ground level
+    // CRITICAL: Keep gravity enabled so ground detection (blocked.down) works for jumps
+    // We lock position manually, but gravity is needed for collision detection
     body.y = bodyCenterY
     body.setVelocityY(0)
-    body.setAllowGravity(false)
+    body.setAllowGravity(true)  // Keep enabled for ground detection
 
     // Apply visual offset for idle pose
     let visualOffsetY = 0
