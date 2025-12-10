@@ -1433,8 +1433,10 @@ export class MainScene extends Phaser.Scene {
     
     if (this.isCrouching) {
       // During crouch: body is disabled, just position it
+      // Preserve X position from when crouch started
+      body.x = this.crouchStartX
       body.y = bodyCenterY
-      this.player.x = body.x
+      this.player.x = this.crouchStartX
       this.player.y = bodyBottomY
       return
     }
