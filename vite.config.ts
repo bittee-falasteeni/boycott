@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 
 export default defineConfig({
@@ -35,6 +35,8 @@ export default defineConfig({
       closeBundle() {
         if (process.env.NODE_ENV === 'production') {
           const indexPath = join(process.cwd(), 'dist', 'index.html')
+          const distPath = join(process.cwd(), 'dist')
+          const manifestPath = join(distPath, 'manifest.json')
           try {
             let html = readFileSync(indexPath, 'utf-8')
             // Replace relative favicon paths with absolute paths
@@ -44,6 +46,20 @@ export default defineConfig({
             
             writeFileSync(indexPath, html, 'utf-8')
             console.log('[BUILD] Fixed favicon paths in index.html')
+            
+            // Ensure manifest.json exists and has correct paths
+            if (existsSync(manifestPath)) {
+              const manifestContent = readFileSync(manifestPath, 'utf-8')
+              const manifest = JSON.parse(manifestContent)
+              // Update paths in manifest to use /boycott/ prefix
+              manifest.start_url = '/boycott/'
+              manifest.icons = manifest.icons.map((icon: any) => ({
+                ...icon,
+                src: icon.src.startsWith('/') ? icon.src : `/boycott/${icon.src}`
+              }))
+              writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
+              console.log('[BUILD] Updated manifest.json paths')
+            }
           } catch (err) {
             console.warn('[BUILD] Failed to fix favicon paths:', err)
           }

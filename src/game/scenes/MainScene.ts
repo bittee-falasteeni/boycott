@@ -529,6 +529,7 @@ export class MainScene extends Phaser.Scene {
   private isTaunting = false
   private currentTauntFrame = 1  // Toggle between 1 (taunt) and 2 (taunt2)
   private isJumping = false
+  private crouchStartX = 0  // Store X position when crouch starts
   private hasDoubleJumped = false  // Track if double jump has been used in boss levels
   private jumpBufferTime: number | null = null  // Store timestamp when jump was pressed in air (for jump buffering)
   private jumpBufferWindow = 300  // Time window in ms to buffer jump input before landing
@@ -1025,7 +1026,7 @@ export class MainScene extends Phaser.Scene {
       this.ground,
       undefined, // process callback
       undefined, // callback context
-      (playerObj, groundObj) => {
+      (playerObj: Phaser.Types.Physics.Arcade.GameObjectWithBody, _groundObj: Phaser.Types.Physics.Arcade.GameObjectWithBody) => {
         // Custom collision callback - prevent default resolution when idle
         // We handle positioning manually, so we don't need Phaser's automatic resolution
         const body = (playerObj as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.Body
@@ -5207,7 +5208,7 @@ export class MainScene extends Phaser.Scene {
         body.setAllowGravity(true)  // Keep enabled for ground detection
         body.setVelocityX(0)
         body.setVelocityY(0)
-      }
+        }
         // When we release movement on the ground and we're not jumping,
         // always return to the default standing idle pose instead of
         // leaving Bittee frozen on a run frame.
@@ -6076,6 +6077,8 @@ export class MainScene extends Phaser.Scene {
       // Only move Y to ground if he's on the ground, otherwise keep his current Y position (if in air)
       const body = this.player.body as Phaser.Physics.Arcade.Body
       const isOnGround = body && (body.blocked.down || body.touching.down || body.onFloor())
+      // Restore X position from when crouch started
+      const restoreX = this.crouchStartX
       
       // Reset all state flags
       this.isThrowing = false
