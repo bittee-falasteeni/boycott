@@ -1441,10 +1441,13 @@ export class MainScene extends Phaser.Scene {
     
     // Lock body to ground level
     // CRITICAL: Keep gravity enabled so ground detection (blocked.down) works for jumps
-    // We lock position manually, but gravity is needed for collision detection
+    // Make body immovable to prevent physics from moving it (prevents bobbing)
+    // Gravity stays enabled for collision detection, but immovable prevents movement
     body.y = bodyCenterY
     body.setVelocityY(0)
+    body.setVelocityX(0)  // Also lock X to prevent drift
     body.setAllowGravity(true)  // Keep enabled for ground detection
+    body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
 
     // Apply visual offset for idle pose
     let visualOffsetY = 0
@@ -5103,10 +5106,10 @@ export class MainScene extends Phaser.Scene {
             if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
               // Directly play animation like throwing does - no complex currentAnim checks
               this.player.anims.play('bittee-run-left', true)
-              // Ensure body is enabled
+              // Ensure body is enabled and movable for running
               if (body) {
                 body.enable = true
-                body.setImmovable(false)
+                body.setImmovable(false)  // Allow movement when running
                 body.setAllowGravity(true)
               }
             }
@@ -5178,7 +5181,7 @@ export class MainScene extends Phaser.Scene {
           body.enable = true
         }
         body.setImmovable(false)  // Allow postUpdate to position it
-        body.setAllowGravity(false)
+        body.setAllowGravity(true)  // Keep enabled for ground detection
         body.setVelocityX(0)
         body.setVelocityY(0)
       }
