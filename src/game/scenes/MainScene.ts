@@ -1458,27 +1458,23 @@ export class MainScene extends Phaser.Scene {
       body.setVelocityX(0)  // Lock X to prevent drift when idle
       body.setVelocityY(0)  // Lock Y velocity
       body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
-      // Lock body position to prevent any drift or jitter
-      const targetX = this.player.x
-      body.x = targetX
-      body.y = bodyCenterY  // Re-lock Y to ensure it's exact
+      // Lock body position to prevent any drift or jitter - use exact values, no rounding needed
+      body.x = this.player.x
+      body.y = bodyCenterY  // Exact ground position
     } else {
       body.setImmovable(false)  // Allow movement when running/throwing/taunting
+      // When running, ensure body bottom is at ground level (same as idle)
+      body.y = bodyCenterY
+      body.setVelocityY(0)  // Lock Y velocity when running on ground
     }
     
     body.setAllowGravity(true)  // Keep enabled for ground detection
 
-    // Sync sprite to body - no visual offset to prevent jitter
-    // When idle, use exact body position
-    if (isIdle && !isRunning) {
-      // For idle: sprite center aligns with body center (no offset)
-      this.player.x = body.x
-      this.player.y = body.y + (body.height / 2)
-    } else {
-      // For other states: normal sync
-      this.player.x = body.x
-      this.player.y = body.y + (body.height / 2)
-    }
+    // Sync sprite to body - ensure feet are at ground level for all states
+    // Use consistent calculation: body bottom = groundYPosition, sprite center = body center
+    const spriteCenterY = body.y + (body.height / 2)
+    this.player.x = body.x
+    this.player.y = spriteCenterY  // Consistent positioning for all states
   }
 
   update(time: number): void {
@@ -6513,13 +6509,13 @@ export class MainScene extends Phaser.Scene {
       case 'shield':
         // Activate shield (invincibility + visual bubble)
         this.activateShield()
-        this.showPowerUpIndicator('Shield', 5000)
+        this.showPowerUpIndicator('Olive Force', 5000)
         break
         
       case 'time':
         // Activate slow motion
         this.activateSlowMotion()
-        this.showPowerUpIndicator('Slow Motion', 3000)  // Match actual slow motion duration (3 seconds)
+        this.showPowerUpIndicator('Sabr', 3000)  // Match actual slow motion duration (3 seconds)
         break
         
       case 'slingshot-red':
@@ -6527,7 +6523,7 @@ export class MainScene extends Phaser.Scene {
         this.rockAmmo.push({ type: 'red', ammo: 1 })
         // Only show indicator if we don't already have one (to prevent it from being removed by other powerups)
         if (!this.powerUpIndicators.has('super-rock')) {
-          this.showPowerUpIndicator('Super Rock', 0)  // No duration, shows until ammo is used
+          this.showPowerUpIndicator('David\'s Throw', 0)  // No duration, shows until ammo is used
         }
         this.updateAmmoDisplay()
         break
@@ -6544,7 +6540,7 @@ export class MainScene extends Phaser.Scene {
         this.autoFireStartTime = this.time.now
         
         // Show indicator with 3 second timer
-        this.showPowerUpIndicator('Auto Throw', 3000)
+        this.showPowerUpIndicator('LeLe Speed', 3000)
         
         // Set timer to disable auto-fire after 3 seconds
         this.autoFireTimer = this.time.delayedCall(3000, () => {
@@ -6569,7 +6565,7 @@ export class MainScene extends Phaser.Scene {
     const centerX = worldWidth / 2
     const centerY = worldHeight / 2
     
-    this.lifeGainText = this.add.text(centerX, centerY, '+ Life', {
+    this.lifeGainText = this.add.text(centerX, centerY, '+ Poppy', {
       fontSize: '80px',
       fontFamily: 'MontserratBold',
       color: '#7fb069',  // Bright olive green
