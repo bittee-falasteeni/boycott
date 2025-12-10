@@ -516,6 +516,7 @@ export class MainScene extends Phaser.Scene {
   private lives = 3
   private fireRate = DIFFICULTY_PRESETS.stormWarning.fireRate
   private isPausedForSettings = false
+  private isPausedForDeath = false  // Pause game during death sequence
   private deathCount = 0  // Track number of deaths to increase power-up spawn chance
   private settings!: GameSettings
   private currentDifficultyKey: DifficultyKey = 'stormWarning'
@@ -530,10 +531,7 @@ export class MainScene extends Phaser.Scene {
   private isJumping = false
   private hasDoubleJumped = false  // Track if double jump has been used in boss levels
   private jumpBufferTime: number | null = null  // Store timestamp when jump was pressed in air (for jump buffering)
-  private jumpBufferWindow = 1000  // Time window in ms to buffer jump input before landing (1 second for continuous hopping)
-  private jumpStartY: number | null = null  // Track Y position when jump starts
-  private jumpMaxY: number | null = null  // Track maximum Y position reached during jump (lowest value = highest jump)
-  private jumpStartTime: number | null = null  // Track when jump started
+  private jumpBufferWindow = 300  // Time window in ms to buffer jump input before landing
   private isCrouching = false
   private justExitedCrouch = false
   private tauntGravityDisabled = false
@@ -917,6 +915,7 @@ export class MainScene extends Phaser.Scene {
     })
 
     this.physics.world.setBounds(0, 0, worldWidth, this.gameplayHeight)
+    
 
     // Very thin ground (1 pixel) so there's no bottom edge - only the top edge matters
     const groundThickness = 1
@@ -947,10 +946,10 @@ export class MainScene extends Phaser.Scene {
     
     // Debug line removed - no longer needed
 
-    // Position sprite higher than ground (shifted up by PLAYER_FOOT_Y_OFFSET)
-    // The collision box will be adjusted to keep its bottom at groundYPosition
-    this.player = this.physics.add.sprite(worldWidth / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET, BITTEE_SPRITES.stand.key)
-    this.player.setOrigin(0.5, 1)
+    // NEW: Position sprite at ground level (body will be positioned by setupPlayerCollider)
+    // Body position is source of truth, sprite follows with visual offsets
+    this.player = this.physics.add.sprite(worldWidth / 2, this.groundYPosition, BITTEE_SPRITES.stand.key)
+    this.player.setOrigin(0.5, 1)  // Bottom center origin
     this.player.setDepth(10)
     this.player.setCollideWorldBounds(true)
 
@@ -959,112 +958,28 @@ export class MainScene extends Phaser.Scene {
     this.player.setScale(targetScale)
     this.basePlayerScale = targetScale
 
-    // Collision box will be set up based on current display dimensions
-    // This allows it to adjust properly when crouching (scaled to 85%)
+    // Setup collision box (NO OFFSETS - body position is collision position)
     this.setupPlayerCollider(0)
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body
     playerBody.setMaxVelocity(PLAYER_SPEED, 2600)
     playerBody.setDragX(0)
     playerBody.setFriction(1, 0)
     playerBody.setGravityY(this.normalGravityY)
+    
+    // NEW: No syncing needed - body is source of truth, sprite follows in postUpdate()
 
     this.createBitteeAnimations()
     this.player.anims.play('bittee-idle')
 
-    // Baseline: No aggressive scale maintenance - let Phaser handle it normally
-    // Only fix scale if it drifts significantly (check less frequently to avoid glitches)
-
-    this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+    // Store the target foot Y position (ground level)
+    this.targetFootY = this.groundYPosition
     
-    // Store the target foot Y position to maintain consistent foot alignment across all poses
-    this.targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-    
-    // Listen for animation frame changes to maintain consistent foot position
-    // When frames change, different heights can cause the sprite to shift vertically
-    // We'll adjust Y position to keep the bottom edge (feet) at the same world position
-    // Only adjust when frame actually changes, not every update, to prevent vibration
-    // NOTE: Crouch and stand animations are excluded - stand is static, crouch has its own handling
-    let lastFrameKey: string | null = null
+    // NEW: Animation listener disabled - postUpdate() handles all positioning
+    // The old listener was fighting with postUpdate() and causing position mismatches
+    // postUpdate() runs every frame and is the final authority on positioning
     this.player.on(Phaser.Animations.Events.ANIMATION_UPDATE, () => {
-      const currentAnimKey = this.player.anims.currentAnim?.key
-      
-      // COMPLETELY skip position adjustments for static animations to prevent vibration
-      // These animations should never trigger position adjustments
-      if (currentAnimKey === 'bittee-crouch' || currentAnimKey === 'bittee-stand' || currentAnimKey === 'bittee-idle' || 
-          currentAnimKey === 'bittee-taunt' || currentAnimKey === 'bittee-taunt2') {
-        return
-      }
-      
-      // Skip position adjustments during transitions to prevent settling delay
-      if (this.isTransitioning) {
-        return
-      }
-      
-      // CRITICAL: Also skip if we just exited crouch - prevent position adjustments during crouch exit
-      if (this.justExitedCrouch) {
-        return
-      }
-      
-      // Completely skip if taunting, jumping, crouching, throwing, or aiming
-      // Also skip for a short time after these actions to prevent vibration
-      if (this.isJumping || this.isCrouching || this.isThrowing || this.isTaunting || this.isAiming) {
-        return
-      }
-      
-      // Skip for jump animations (even if isJumping flag isn't set yet)
-      const isJumpAnim = currentAnimKey === 'bittee-jump-air-left' || currentAnimKey === 'bittee-jump-air-right' || 
-                         currentAnimKey === 'bittee-jump-squat-left' || currentAnimKey === 'bittee-jump-squat-right'
-      if (isJumpAnim) {
-        return
-      }
-      
-      const body = this.player.body as Phaser.Physics.Arcade.Body | null
-      const isOnGround = body ? this.isPlayerGrounded(body) : false
-      if (!isOnGround) {
-        return
-      }
-      
-      // ONLY adjust for running animations - everything else is completely skipped
-      const isRunAnim = currentAnimKey === 'bittee-run-left' || currentAnimKey === 'bittee-run-right'
-      if (!isRunAnim) {
-        // For non-running animations, completely skip to prevent vibration
-        return
-      }
-      
-      // Only adjust if the frame actually changed (prevents constant adjustments)
-      const currentFrame = this.player.anims.currentFrame
-      const frameKey = currentFrame && currentAnimKey ? `${currentAnimKey}-${currentFrame.index}` : null
-      if (frameKey !== lastFrameKey) {
-        lastFrameKey = frameKey
-        
-        // Keep feet on ground during running animations (but NOT during jumps)
-        // Only correct Y position when:
-        // 1. Running animation (not jumping)
-        // 2. Actually grounded (physics says so)
-        // 3. Almost stationary vertically (not jumping/falling)
-        if (this.isJumping || this.isTransitioning) {
-          // Don't interfere with jump physics or landing transitions
-          return
-        }
-        
-        const verticalVelocity = body ? body.velocity.y : 0
-        const isGrounded = body ? (body.blocked.down || body.touching.down) : false
-        
-        // Only correct Y when grounded and almost stationary (running on ground)
-        if (isGrounded && Math.abs(verticalVelocity) < 5) {
-          const targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-          const currentY = this.player.y
-          const yDiff = currentY - targetFootY
-          
-          // Keep feet on ground - correct if more than 2px off (gentle correction)
-          if (Math.abs(yDiff) > 2) {
-            this.player.setY(targetFootY)
-            if (body) {
-              body.updateFromGameObject()
-            }
-          }
-        }
-      }
+      // Do nothing - let postUpdate() handle all positioning
+      // This prevents conflicts between animation frame changes and physics positioning
     })
 
     this.facing = 'right'
@@ -1104,7 +1019,24 @@ export class MainScene extends Phaser.Scene {
       allowGravity: true,
     })
 
-    this.physics.add.collider(this.player, this.ground)
+    // Player-ground collision with custom callback to prevent incorrect positioning
+    this.physics.add.collider(
+      this.player, 
+      this.ground,
+      undefined, // process callback
+      undefined, // callback context
+      (playerObj, groundObj) => {
+        // Custom collision callback - prevent default resolution when idle
+        // We handle positioning manually, so we don't need Phaser's automatic resolution
+        const body = (playerObj as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.Body
+        if (body && !this.isJumping && !this.isCrouching) {
+          // Body is already positioned correctly by our code
+          // Don't let Phaser's collision resolution move it
+          return false // Return false to skip default collision resolution
+        }
+        return true // Allow default resolution for jumps/crouches
+      }
+    )
     
     // Power-ups collider with ground - track when they hit the floor
     this.physics.add.collider(this.powerUps, this.ground, (powerUpObj) => {
@@ -1462,11 +1394,75 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * CRITICAL: This runs AFTER Phaser's physics step.
+   * Phaser's physics step recalculates body position incorrectly when offsets are set,
+   * so we must fix it here by syncing body to sprite position.
+   * 
+   * The core issue: Phaser's physics step recalculates body.y incorrectly when body.setOffset() is used.
+   * It subtracts the offset incorrectly, causing body.y to be ~200px off from sprite.y.
+   * 
+   * Solution: ALWAYS sync body to sprite position (body follows sprite, never vice versa).
+   * Phaser corrupts the body position every frame, so we fix it every frame here.
+   */
+  /**
+   * Correct body position after physics step
+   * Called via physics world 'worldstep' event
+   */
+  postUpdate(): void {
+    // Simple sprite-body sync
+    if (!this.isGameActive || this.isPausedForSettings || this.isPausedForDeath) {
+      return
+    }
+
+    const body = this.player.body as Phaser.Physics.Arcade.Body | null
+    if (!body || !body.enable) {
+      return
+    }
+
+    // During jumps: sprite follows body
+    if (this.isJumping) {
+      this.player.x = body.x
+      this.player.y = body.y + (body.height / 2)
+      return
+    }
+
+    // Grounded: sync sprite to body with visual offset for idle
+    let visualOffsetY = 0
+    if (!this.isThrowing && !this.isTaunting && !this.isTransitioning && !this.justExitedCrouch) {
+      const currentAnim = this.player.anims.currentAnim?.key
+      if (currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand') {
+        visualOffsetY = 10  // Stand pose visual offset
+      }
+    }
+    
+    this.player.x = body.x
+    this.player.y = body.y + (body.height / 2) + visualOffsetY
+  }
+
   update(time: number): void {
     // Wrap update in try-catch to prevent crashes on mobile
     try {
-      if (this.isPausedForSettings || !this.isGameActive) {
+      if (this.isPausedForSettings || !this.isGameActive || this.isPausedForDeath) {
         this.updateBossLevel()  // Still update boss level even when paused (for transitions)
+        // CRITICAL: Lock player position during death pause to prevent jitter
+        // Keep player at death position (could be in air or on ground)
+        if (this.isPausedForDeath) {
+          const deathY = this.player.y  // Keep current position (frozen at death location)
+          this.player.setY(deathY)
+          const body = this.player.body as Phaser.Physics.Arcade.Body | null
+          if (body) {
+            // Completely disable body during death pause
+            body.enable = false
+            body.setVelocity(0, 0)
+            body.setAcceleration(0, 0)
+            body.setImmovable(true)
+            body.setAllowGravity(false)
+            // Manually set body position to match sprite (without updateFromGameObject)
+            body.x = this.player.x
+            body.y = deathY
+          }
+        }
         return
       }
       
@@ -1495,19 +1491,33 @@ export class MainScene extends Phaser.Scene {
       }
     }
     
-    // CRITICAL: Lock position during crouch to prevent jitter
-    // Lock EVERY frame without threshold check to prevent any drift
-    // Don't touch the body at all - just lock the sprite position
-    // The body is already disabled and immovable during crouch
+    // NEW: Lock body to ground during crouch
+    // Body is disabled during crouch, but we still position it correctly
     if (this.isCrouching && !this.isTransitioning) {
-      const crouchFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-      const currentY = this.player.y
-      const drift = Math.abs(currentY - crouchFeetY)
-      // Lock position every frame - no threshold check to prevent any drift
-      if (drift > 0.001) {  // Very small threshold just to avoid unnecessary setY calls
-        // Just lock sprite position - don't touch body at all
-        // The body is disabled during crouch, so it won't interfere
-        this.player.setY(crouchFeetY)
+      const body = this.player.body as Phaser.Physics.Arcade.Body | null
+      if (body) {
+        // Lock body to ground level
+        const bodyBottomY = this.groundYPosition
+        body.y = bodyBottomY - (body.height / 2)
+        // Sprite position will be set in postUpdate()
+      }
+    }
+    
+    // NEW: Let postUpdate() handle ALL positioning - don't set body position here
+    // postUpdate() runs after physics step and is the final authority
+    // Just ensure body is enabled for idle poses (postUpdate will position it)
+    if (!this.isCrouching && !this.isJumping && !this.isThrowing && !this.isTaunting && !this.isTransitioning && !this.justExitedCrouch) {
+      const currentAnim = this.player.anims.currentAnim?.key
+      const isIdleAnim = currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand'
+      if (isIdleAnim) {
+        const body = this.player.body as Phaser.Physics.Arcade.Body | null
+        if (body && this.isPlayerGrounded(body)) {
+          // Just ensure body is enabled - postUpdate() will position it correctly
+          if (!body.enable) {
+            body.enable = true
+          }
+          // Don't set position here - let postUpdate() handle it
+        }
       }
     }
     
@@ -1529,17 +1539,19 @@ export class MainScene extends Phaser.Scene {
     
     // Safety check: Ensure body is enabled when not in any transition
     if (!this.isTransitioning && !this.isCrouching && !this.isJumping) {
-      const body = this.player.body as Phaser.Physics.Arcade.Body | null
-      if (body && !body.enable) {
-        body.enable = true
-        body.setImmovable(false)
-        body.setAllowGravity(true)
+      const safetyBody = this.player.body as Phaser.Physics.Arcade.Body | null
+      if (safetyBody && !safetyBody.enable) {
+        safetyBody.enable = true
+        safetyBody.setImmovable(false)
+        safetyBody.setAllowGravity(true)
       }
     }
     
     // Lock collision box to sprite - but only sync position when needed
-    // Don't call updateFromGameObject every frame as it can interfere with physics movement
+    // CRITICAL: Don't call updateFromGameObject every frame - it can reset body position incorrectly
+    // Only manually set body position when we need to lock it (idle, crouch, etc.)
     // The collision box will stay attached via the offset we set in setupPlayerCollider
+    // NOTE: Post-physics sync is now handled in postUpdate() which runs AFTER Phaser's physics step
 
     this.handleTaunt()
     this.handleJump()
@@ -1574,6 +1586,7 @@ export class MainScene extends Phaser.Scene {
       this.cleanupInactiveObjects()
     }
     
+    
     // CRITICAL: Lock position again at the END of update to catch any late updates
     // This ensures position stays locked even if something runs after the initial lock
     if (this.isTransitioning && this.justExitedCrouch && this.transitionTargetY > 0) {
@@ -1590,12 +1603,14 @@ export class MainScene extends Phaser.Scene {
     // CRITICAL: Lock position for a few frames after transition completes
     // This prevents the body from falling while physics settles
     if (this.postTransitionLockFrames > 0) {
-      const expectedY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-      this.player.setY(expectedY)
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body) {
-        // Sync body position to sprite - don't let physics move it yet
-        body.updateFromGameObject()
+        // Position body at ground level
+        const targetBodyBottomY = this.groundYPosition
+        const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
+        body.y = targetBodyCenterY
+        this.player.x = body.x
+        this.player.y = targetBodyBottomY
         body.setVelocity(0, 0)
         body.setAcceleration(0, 0)
         // Don't force physics step - it can interfere with ball physics
@@ -1621,7 +1636,7 @@ export class MainScene extends Phaser.Scene {
         // This ensures the player stays on the ground even after the lock ends
         this.player.setY(expectedY)
         if (body) {
-          body.updateFromGameObject()
+          this.syncPlayerBodyPosition()
           body.setVelocity(0, 0)
           // Don't force physics step - it can interfere with ball physics
           // Physics will update naturally on next frame
@@ -1720,12 +1735,30 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Constrain player X position to prevent edges from going off screen
+    // Also prevent running into walls by stopping velocity if at edge and trying to run that direction
     const worldWidth = this.cameras.main.width
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body
     if (playerBody) {
       const playerHalfWidth = this.player.displayWidth / 2
       const rightEdge = this.player.x + playerHalfWidth
       const leftEdge = this.player.x - playerHalfWidth
+      const atLeftEdge = leftEdge <= 0
+      const atRightEdge = rightEdge >= worldWidth
+      
+      // Smooth wall collision: gradually reduce velocity as approaching edge
+      // This creates a soft, natural stop instead of abrupt collision
+      if (atLeftEdge && playerBody.velocity.x < 0) {
+        // Smoothly stop when hitting left wall
+        const stopFactor = 0.3  // Reduce velocity by 70% each frame for smooth stop
+        this.player.setVelocityX(playerBody.velocity.x * stopFactor)
+        playerBody.setVelocityX(playerBody.velocity.x * stopFactor)
+      }
+      if (atRightEdge && playerBody.velocity.x > 0) {
+        // Smoothly stop when hitting right wall
+        const stopFactor = 0.3
+        this.player.setVelocityX(playerBody.velocity.x * stopFactor)
+        playerBody.setVelocityX(playerBody.velocity.x * stopFactor)
+      }
       
       // Soft constraint: gently nudge player back if slightly past edge
       // This ensures left edge settles exactly on x=0 when player lets go
@@ -1774,7 +1807,8 @@ export class MainScene extends Phaser.Scene {
     // CRITICAL: Lock position during crouch and crouch exit transition
     // This MUST run at the very end of update() to ensure it's the last thing that happens
     // This prevents any other systems from moving the player after we lock position
-    const body = this.player.body as Phaser.Physics.Arcade.Body | null
+    // Reuse body variable declared at start of update()
+    const finalBody = this.player.body as Phaser.Physics.Arcade.Body | null
     const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
     
     // Lock position during crouch exit transition
@@ -1787,30 +1821,30 @@ export class MainScene extends Phaser.Scene {
       if (Math.abs(yDrift) > 0.1) {
       }
       this.player.setY(feetY)
-      if (body) {
+      if (finalBody) {
         // CRITICAL: Ensure body is disabled during transition
-        if (body.enable) {
-          body.enable = false
+        if (finalBody.enable) {
+          finalBody.enable = false
         }
-        const velBeforeLock = { x: body.velocity.x, y: body.velocity.y }
+        const velBeforeLock = { x: finalBody.velocity.x, y: finalBody.velocity.y }
         if (Math.abs(velBeforeLock.x) > 0.1 || Math.abs(velBeforeLock.y) > 0.1) {
         }
         // Sync body to sprite position, but keep it disabled
-        body.updateFromGameObject()
+        this.syncPlayerBodyPosition()
         // Ensure body is locked during transition to prevent any physics interference
-        body.setVelocity(0, 0)
-        body.setAcceleration(0, 0)
-        body.setImmovable(true)
-        body.setAllowGravity(false)
-        body.enable = false  // Keep disabled
+        finalBody.setVelocity(0, 0)
+        finalBody.setAcceleration(0, 0)
+        finalBody.setImmovable(true)
+        finalBody.setAllowGravity(false)
+        finalBody.enable = false  // Keep disabled
       }
     }
     // Also lock position during active crouch to prevent any drift
-    else if (this.isCrouching && !this.isJumping && body) {
+    else if (this.isCrouching && !this.isJumping && finalBody) {
       this.player.setY(feetY)
-      body.setVelocityY(0)
-      body.setVelocityX(0)
-      body.updateFromGameObject()
+      finalBody.setVelocityY(0)
+      finalBody.setVelocityX(0)
+      this.syncPlayerBodyPosition()
     }
     } catch (error) {
       // Prevent crashes on mobile by catching errors in update loop
@@ -1949,7 +1983,7 @@ export class MainScene extends Phaser.Scene {
       .setDepth(10)
       .setScale(2.5)
 
-    this.levelUnderline = this.add.rectangle(this.levelText.x + this.levelText.width / 2, padding + this.levelText.height + 20, this.levelText.width + 100, 10, 0xd7ddcc, 1)
+    this.levelUnderline = this.add.rectangle(this.levelText.x + this.levelText.width / 2, padding + this.levelText.height + 20, this.levelText.width + 150, 10, 0xd7ddcc, 1)
     this.levelUnderline.setOrigin(0.5, 0)
     this.levelUnderline.setScrollFactor(0)
     this.levelUnderline.setDepth(10)
@@ -4713,13 +4747,15 @@ export class MainScene extends Phaser.Scene {
         this.levelText.setColor('#7fb069')  // Bright olive green
         this.levelText.setX(padding - 10)  // Shift left by 10 pixels
         this.levelText.setOrigin(0, 0)  // Ensure left origin
-        this.levelText.setY(padding + 10)  // Shift down by 10 pixels (was padding - 20)
+        this.levelText.setY(padding - 22)  // 22px higher than padding (shifted down 2px from -24)
         // Show underline for boss levels (will be hidden when last tank is destroyed)
         if (this.levelUnderline) {
           this.levelUnderline.setVisible(true)
           // Update underline position to match text position
           this.levelUnderline.setX(this.levelText.x + this.levelText.width / 2)
-          this.levelUnderline.setY(this.levelText.y + this.levelText.height + 20)
+          this.levelUnderline.setY(this.levelText.y + this.levelText.height + 28)  // Shifted down by 8px (was 20, now 28)
+          // Set underline width to text.width + 150
+          this.levelUnderline.setSize(this.levelText.width + 150, 10)
         }
       } else {
         // Regular level styling - reset to original position and origin
@@ -4756,14 +4792,15 @@ export class MainScene extends Phaser.Scene {
       // CRITICAL: Skip position adjustments during crouch exit transition to prevent jittering
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body && this.isPlayerGrounded(body) && !this.isCrouching && !this.isTransitioning && !this.justExitedCrouch) {
-        // Use current position, but ensure we're at least at ground level
+        // Add 10px visual offset for stand pose - sprite appears 10px lower
+        // This is PURELY visual - physics body stays at normal position
         const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-        // Only adjust if significantly below ground to prevent jittering
-        if (this.player.y > groundFeetY + 5) {
-          this.player.setY(groundFeetY)
-          body.updateFromGameObject()
-        }
-        // Otherwise keep current position - this allows idle pose at whatever position buttons were released
+        const standPoseY = groundFeetY + 10  // +10px visual offset for stand pose
+        
+        // Set sprite at visual position (purely visual offset)
+        this.player.setY(standPoseY)
+        // Let body stay at normal position - don't interfere with physics
+        // The update loop will lock the sprite position every frame
       }
       this.player.setFlipX(false)
       // Now play idle animation
@@ -4772,14 +4809,45 @@ export class MainScene extends Phaser.Scene {
   }
 
   private isPlayerGrounded(body: Phaser.Physics.Arcade.Body): boolean {
-    // SIMPLIFIED: Use physics body ground detection only - trust the physics engine
-    return body.blocked.down || body.touching.down
+    // Prioritize physics body's ground detection - most reliable
+    const physicsGrounded = body.blocked.down || body.touching.down || body.onFloor?.() === true
+    if (physicsGrounded) {
+      // Removed excessive debug log - was spamming console every frame
+      return true
+    }
+
+    // Fallback: treat as grounded when very close to the ground and moving slowly
+    // Increased range to account for slight elevation during running animations
+    const epsilon = 12  // Increased to 12 for better detection during running (was 10)
+    const nearGround = this.player.y >= this.groundYPosition - 5 && this.player.y <= this.groundYPosition + epsilon
+    const verticalVelocity = body.velocity.y
+    const isMovingSlowly = verticalVelocity >= -100 && verticalVelocity <= 50
+    const fallbackGrounded = nearGround && isMovingSlowly
+    
+    // Removed excessive debug log - was spamming console every frame
+    
+    return fallbackGrounded
   }
 
-  // SIMPLIFIED: Use strict physics ground detection only
+  // Lenient jump check that accounts for running animation elevation
   private canJump(body: Phaser.Physics.Arcade.Body): boolean {
-    // Only allow jump if actually grounded according to physics
-    return this.isPlayerGrounded(body)
+    const onGround = this.isPlayerGrounded(body)
+    if (onGround) {
+      // Removed excessive debug log - was spamming console every frame when running
+      return true
+    }
+    
+    // Allow jump if very close to ground (within 5px above to 15px below) and moving slowly
+    // This handles cases where running animation frames slightly elevate Bittee
+    const nearGround = this.player.y >= this.groundYPosition - 5 && this.player.y <= this.groundYPosition + 15
+    const verticalVelocity = body.velocity.y
+    const isMovingSlowly = verticalVelocity >= -50 && verticalVelocity <= 50
+    const canJumpNearGround = nearGround && isMovingSlowly
+    
+    // Only log when jump is actually needed (not grounded) - reduced frequency
+    // Removed excessive debug log - was spamming console every frame when running
+    
+    return canJumpNearGround
   }
 
   // FIX: Centralized crouch exit transition function (Copilot recommendation)
@@ -4918,38 +4986,26 @@ export class MainScene extends Phaser.Scene {
         // shortly after can be boosted.
         this.lastCrouchTime = this.time.now
         
-        // The origin is at (0.5, 1) which means Y position is the bottom of the sprite
-        // When we scale down, the sprite gets smaller but the origin stays at the bottom
-        // So we need to keep the Y position the same to keep feet on ground
-        const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-        
+        // NEW: Position body at ground level (body is source of truth)
         // Visually shrink Bittee while crouching (scale down to 85%)
         this.player.setScale(this.basePlayerScale * 0.85)
         
-        // Keep feet at the same ground level - Y position stays the same
-        // Since origin is at bottom, scaling down doesn't change where the bottom is
-        this.player.setY(feetY)
-        
         // Update collision box to match crouched sprite size
         this.setupPlayerCollider(0)
-        // Re-anchor position after setupPlayerCollider
-        this.player.setY(feetY)
         
-        // Disable gravity and lock position to prevent physics from moving Bittee
+        // Position body at ground level
+        const bodyBottomY = this.groundYPosition
         if (body) {
-          // CRITICAL: Disable the body completely during crouch to prevent any physics interference
+          body.y = bodyBottomY - (body.height / 2)
+          // Disable body during crouch to prevent physics interference
           body.enable = false
-          // Make body immovable during crouch to prevent collisions from moving it
           body.setImmovable(true)
-          // Sync body position with sprite AFTER collision box update
-          body.updateFromGameObject()
           body.setAllowGravity(false)
           body.setVelocity(0, 0)
           body.setAcceleration(0, 0)
         }
         
-        // Extra position lock after all changes to ensure no drift
-        this.player.setY(feetY)
+        // Sprite position will be set in postUpdate() to match body
       }
       // While crouching, Bittee holds crouch pose and doesn't move
       // Stop all movement and keep position locked
@@ -5013,7 +5069,7 @@ export class MainScene extends Phaser.Scene {
       const atRightEdge = this.player.x + playerHalfWidth >= worldWidth
       
       if (leftDown) {
-        // Stop at left edge - don't allow further movement left
+        // Don't allow running left if at left edge
         if (atLeftEdge) {
           this.player.setVelocityX(0)
           if (body) {
@@ -5021,7 +5077,7 @@ export class MainScene extends Phaser.Scene {
           }
         } else {
           // Set velocity on both sprite and body to ensure movement
-          this.player.setVelocityX(-PLAYER_SPEED)
+      this.player.setVelocityX(-PLAYER_SPEED)
           const previousFacing = this.facing
           this.facing = 'left'
           if (body) {
@@ -5033,22 +5089,19 @@ export class MainScene extends Phaser.Scene {
             const jumpFrame = BITTEE_SPRITES.jumpAir.left[this.currentJumpFrameIndex].key
             this.player.setTexture(jumpFrame)
           }
-          if (isOnGround && !atLeftEdge && !this.isJumping) {
-            // CRITICAL: Don't set run animation if jumping (jump takes priority)
+          if (isOnGround && !atLeftEdge) {
             const currentAnim = this.player.anims.currentAnim?.key
             const isJumpAnim = currentAnim === 'bittee-jump-air-left' || currentAnim === 'bittee-jump-air-right' || 
                                currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
             // Force animation change if not already running left
-            if (currentAnim !== 'bittee-run-left' && !isJumpAnim && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
+            // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
+            if (currentAnim !== 'bittee-run-left' && !isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
               this.player.anims.play('bittee-run-left', true)
-              // Keep feet on ground during running - gentle correction
-              // CRITICAL: Don't correct Y position if jumping - it cancels the jump!
-              const targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-              if (Math.abs(this.player.y - targetFootY) > 2 && isOnGround && !this.isJumping) {
-                this.player.setY(targetFootY)
-                if (body) {
-                  body.updateFromGameObject()
-                }
+              // NEW: Let postUpdate() handle positioning - just ensure body is enabled
+              if (body) {
+                body.enable = true
+                body.setImmovable(false)
+                body.setAllowGravity(true)
               }
             }
             // Play run sound if not already playing
@@ -5059,7 +5112,7 @@ export class MainScene extends Phaser.Scene {
           }
         }
       } else if (rightDown) {
-        // Stop at right edge - don't allow further movement right
+        // Don't allow running right if at right edge
         if (atRightEdge) {
           this.player.setVelocityX(0)
           if (body) {
@@ -5067,7 +5120,7 @@ export class MainScene extends Phaser.Scene {
           }
         } else {
           // Set velocity on both sprite and body to ensure movement
-          this.player.setVelocityX(PLAYER_SPEED)
+      this.player.setVelocityX(PLAYER_SPEED)
           const previousFacing = this.facing
           this.facing = 'right'
           if (body) {
@@ -5079,22 +5132,19 @@ export class MainScene extends Phaser.Scene {
             const jumpFrame = BITTEE_SPRITES.jumpAir.right[this.currentJumpFrameIndex].key
             this.player.setTexture(jumpFrame)
           }
-          if (isOnGround && !atRightEdge && !this.isJumping) {
-            // CRITICAL: Don't set run animation if jumping (jump takes priority)
+          if (isOnGround && !atRightEdge) {
             const currentAnim = this.player.anims.currentAnim?.key
             const isJumpAnim = currentAnim === 'bittee-jump-air-left' || currentAnim === 'bittee-jump-air-right' || 
                                currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
             // Force animation change if not already running right
-            if (currentAnim !== 'bittee-run-right' && !isJumpAnim && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
+            // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
+            if (currentAnim !== 'bittee-run-right' && !isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
               this.player.anims.play('bittee-run-right', true)
-              // Keep feet on ground during running - gentle correction
-              // CRITICAL: Don't correct Y position if jumping - it cancels the jump!
-              const targetFootY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-              if (Math.abs(this.player.y - targetFootY) > 2 && isOnGround && !this.isJumping) {
-                this.player.setY(targetFootY)
-                if (body) {
-                  body.updateFromGameObject()
-                }
+              // NEW: Let postUpdate() handle positioning - just ensure body is enabled
+              if (body) {
+                body.enable = true
+                body.setImmovable(false)
+                body.setAllowGravity(true)
               }
             }
             // Play run sound if not already playing
@@ -5105,15 +5155,44 @@ export class MainScene extends Phaser.Scene {
           }
         }
     } else {
+      // Not moving - stop horizontal velocity
       this.player.setVelocityX(0)
-        if (body) {
-          body.setVelocityX(0)
+      if (body) {
+        body.setVelocityX(0)
+      }
+      // Stop run sound when not moving
+      if (this.runSoundPlaying) {
+        this.stopSound('bittee-run-sound')
+        this.runSoundPlaying = false
+      }
+      
+      // If in idle pose, ensure body is disabled and position is locked
+      // This prevents any drift when not moving
+      const currentAnim = this.player.anims.currentAnim?.key
+      const isIdleAnim = currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand'
+      if (isIdleAnim && body && this.isPlayerGrounded(body) && !this.isCrouching && !this.isJumping) {
+        // NEW APPROACH: Keep body enabled, just freeze it
+        // Lock positions
+        const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+        const standPoseY = groundFeetY + 10
+        this.player.setY(standPoseY)
+        this.player.setX(this.player.x)  // Lock X position
+        
+        // Keep body enabled but frozen
+        if (!body.enable) {
+          body.enable = true
         }
-        // Stop run sound when not moving
-        if (this.runSoundPlaying) {
-          this.stopSound('bittee-run-sound')
-          this.runSoundPlaying = false
-        }
+        body.setImmovable(true)
+        body.setAllowGravity(false)
+        body.setVelocity(0, 0)
+        body.setAcceleration(0, 0)
+        
+        // NOTE: Body position sync is handled in postUpdate() which runs AFTER physics step
+        // This ensures body position is correct even after Phaser recalculates it incorrectly
+        // We still set it here to minimize drift, but postUpdate() is the final authority
+        body.x = this.player.x
+        body.y = standPoseY  // Match sprite position
+      }
         // When we release movement on the ground and we're not jumping,
         // always return to the default standing idle pose instead of
         // leaving Bittee frozen on a run frame.
@@ -5164,9 +5243,11 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // SIMPLIFIED: Simple jump buffering - only buffer if falling (not grounded, moving down)
-    if (jumpJustPressed && !onGround && body.velocity.y > 0 && !this.isThrowing && !this.isCrouching) {
-      // Store jump input with timestamp for buffering (only when falling)
+    // JUMP BUFFERING: If jump is pressed while in air (but not on ground), store it
+    // This allows pressing jump before landing and it will execute as soon as Bittee touches ground
+    // Also allow buffering when landing (isJumping but about to land)
+    if (jumpJustPressed && (!onGround || (this.isJumping && body.velocity.y >= 0)) && !this.isThrowing && !this.isCrouching) {
+      // Store jump input with timestamp for buffering
       this.jumpBufferTime = this.time.now
     }
 
@@ -5184,21 +5265,15 @@ export class MainScene extends Phaser.Scene {
     const canDoubleJump = isJetPhase && this.isJumping && !this.hasDoubleJumped && !onGround
     
     if (jumpJustPressed && (canJump || canDoubleJump) && !this.isThrowing) {
-      // Track jump start for debugging
-      this.jumpStartY = this.player.y
-      this.jumpMaxY = this.player.y  // Initialize to start Y (lower = higher jump)
-      this.jumpStartTime = this.time.now
-      
-      if (isRunning) {
-        console.log('[JUMP] Executing jump from running state', {
-          startY: this.jumpStartY.toFixed(2),
-          groundY: this.groundYPosition.toFixed(2),
-          velX: body.velocity.x.toFixed(2),
-          velY: body.velocity.y.toFixed(2),
-          blockedDown: body.blocked.down,
-          touchingDown: body.touching.down
-        })
+      // Ensure body is enabled and ready for jump
+      if (body) {
+        if (!body.enable) {
+          body.enable = true
+        }
+        body.setImmovable(false)
+        body.setAllowGravity(true)
       }
+      
       if (this.isCrouching) {
         // Reset all state flags
         this.isCrouching = false
@@ -5212,6 +5287,7 @@ export class MainScene extends Phaser.Scene {
         
         // Re-enable physics (in case they were disabled during crouch)
         if (body) {
+          body.enable = true  // Ensure body is enabled
           body.setImmovable(false)
           body.setAllowGravity(true)
           body.setVelocity(0, 0)
@@ -5221,36 +5297,48 @@ export class MainScene extends Phaser.Scene {
         // Update collision box to match standing sprite size
         this.setupPlayerCollider(0)
         
-        // Set position to ground level before jumping
-        const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-        this.player.setY(feetY)
+        // NEW: Position body at ground level before jumping (body is source of truth)
+        const bodyBottomY = this.groundYPosition
         if (body) {
-          body.updateFromGameObject()
+          body.y = bodyBottomY - (body.height / 2)
+          this.player.x = body.x
+          this.player.y = bodyBottomY
         }
       }
 
       // isRunning is already declared above
       let jumpDirection: 'left' | 'right'
 
-      if (isRunning) {
+      // FIX: Check for left/right keys FIRST (even if running), then use running direction, then alternating
+      // This ensures that when keys are pressed, we use that direction, and when standing still, we alternate
+      if (leftDown) {
+        // Left is pressed - use left direction (regardless of running state)
+        jumpDirection = 'left'
+        this.facing = 'left'  // Update facing to match
+      } else if (rightDown) {
+        // Right is pressed - use right direction (regardless of running state)
+        jumpDirection = 'right'
+        this.facing = 'right'  // Update facing to match
+      } else if (isRunning) {
+        // No keys pressed but running - use current facing direction
         jumpDirection = this.facing
       } else {
+        // Neither key pressed and not running - use alternating standing direction
         jumpDirection = this.standingJumpDirection
         this.standingJumpDirection = this.standingJumpDirection === 'left' ? 'right' : 'left'
       }
 
       this.currentJumpDirection = jumpDirection
+      
       // If this is a double jump, mark it as used
       if (canDoubleJump) {
         this.hasDoubleJumped = true
       }
       this.isJumping = true
       if (body) {
-        // CRITICAL: Set gravity first, then velocity directly (don't set to 0 first)
-        // Setting to 0 creates a brief window where landing check can cancel the jump
+        body.setVelocityY(0)
         body.setAcceleration(0, 0)
         body.setGravityY(this.jumpGravityY)
-        // Don't set velocity to 0 - we'll set it to jumpVelocity immediately below
       }
 
       // Determine base or boosted jump velocity.
@@ -5268,30 +5356,37 @@ export class MainScene extends Phaser.Scene {
 
       // Reset jump frame index when starting a new jump
       this.currentJumpFrameIndex = 0
-      
-      // CRITICAL: Stop ALL animations immediately and set jump frame
-      // This prevents running pose from showing during jump
+      // Stop any running animations before jumping
       this.player.anims.stop()
-      
-      // Determine jump frame based on direction
-      let firstAirFrame: string
       if (isRunning) {
-        // Running jump: use first air frame for direction
-        firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][0].key
+        // Running jump: use the same air pose as standing, but keep horizontal speed.
+        const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][0].key
+        this.player.setFlipX(false)
+        this.player.setTexture(firstAirFrame)
+        if (body) {
+          body.setGravityY(this.jumpGravityY)
+          body.setVelocityY(jumpVelocity)
+          // CRITICAL: Preserve horizontal velocity when jumping while running
+          // Set horizontal velocity based on jump direction to ensure movement continues
+          if (jumpDirection === 'left') {
+            body.setVelocityX(-PLAYER_SPEED)
+            this.player.setVelocityX(-PLAYER_SPEED)
+          } else {
+            body.setVelocityX(PLAYER_SPEED)
+            this.player.setVelocityX(PLAYER_SPEED)
+          }
+        }
       } else {
         // Standing jump: switch between jump-right2 and jump-left2
+        // right: index 0 = jump-right2, left: index 1 = jump-left2
         const airFrameIndex = jumpDirection === 'right' ? 0 : 1
-        firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][airFrameIndex].key
-      }
-      
-      // Set jump frame immediately - this ensures running pose doesn't show
-      this.player.setFlipX(false)
-      this.player.setTexture(firstAirFrame)
-      
-      // Apply jump physics
-      if (body) {
-        body.setGravityY(this.jumpGravityY)
-        body.setVelocityY(jumpVelocity)
+        const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][airFrameIndex].key
+        this.player.setFlipX(false)
+        this.player.setTexture(firstAirFrame)
+        if (body) {
+          body.setGravityY(this.jumpGravityY)
+          body.setVelocityY(jumpVelocity)
+        }
       }
     }
 
@@ -5304,70 +5399,13 @@ export class MainScene extends Phaser.Scene {
       if (body && body.gravity.y !== this.jumpGravityY) {
         body.setGravityY(this.jumpGravityY)
       }
-      
-      // Track max Y position during jump (lower Y = higher jump)
-      if (this.jumpStartY !== null && this.jumpMaxY !== null) {
-        if (this.player.y < this.jumpMaxY) {
-          this.jumpMaxY = this.player.y
-        }
-      }
     }
 
-    // SIMPLIFIED: Only end jump if physics says grounded AND not moving upward
-    // CRITICAL: Add minimum jump time to prevent immediate cancellation
-    // Physics body can still report "grounded" for 1-2 frames after jump starts
-    // Increased to 100ms to ensure jump velocity has time to take effect
-    const minJumpTime = 100  // Minimum 100ms before jump can end
-    const hasJumpTimeElapsed = this.jumpStartTime !== null && (this.time.now - this.jumpStartTime) >= minJumpTime
-    
-    // CRITICAL: Never end jump if player is still moving upward (velocity.y < 0)
-    // This is the most reliable check - if moving up, can't have landed
-    if (this.isJumping && body.velocity.y < 0) {
-      // Player is moving up - can't have landed yet, skip landing check
-      return
-    }
-    
-    const isActuallyGrounded = body.blocked.down || body.touching.down
-    
-    // Only end jump if:
-    // 1. Actually grounded (physics says so)
-    // 2. Not moving upward (velocity.y >= 0) - already checked above
-    // 3. Enough time has passed (prevents immediate cancellation when physics still reports "grounded")
-    // The minimum jump time prevents the landing check from running in the same frame as jump starts
-    if (isActuallyGrounded && this.isJumping && body.velocity.y >= 0 && hasJumpTimeElapsed) {
-      // End jump - we've landed
-      if (this.jumpStartY !== null && this.jumpMaxY !== null && this.jumpStartTime !== null) {
-        const jumpHeight = this.jumpStartY - this.jumpMaxY  // Positive = actual jump height
-        const jumpDuration = this.time.now - this.jumpStartTime
-        const wasRunning = Math.abs(body.velocity.x) > 10
-        
-        if (wasRunning) {
-          console.log('[JUMP] Jump completed', {
-            startY: this.jumpStartY.toFixed(2),
-            maxY: this.jumpMaxY.toFixed(2),
-            endY: this.player.y.toFixed(2),
-            jumpHeight: jumpHeight.toFixed(2),
-            jumpDuration: jumpDuration.toFixed(0) + 'ms',
-            groundY: this.groundYPosition.toFixed(2),
-            velY: body.velocity.y.toFixed(2),
-            wasSuccessful: jumpHeight > 5
-          })
-        }
-        
-        // Reset tracking
-        this.jumpStartY = null
-        this.jumpMaxY = null
-        this.jumpStartTime = null
-      }
-      
+    if (onGround && this.isJumping && body && body.velocity.y >= 0) {
+      // End jump as soon as we've landed (no longer moving upward)
       this.isJumping = false
-      this.hasDoubleJumped = false
+      this.hasDoubleJumped = false  // Reset double jump when landing
       body.setGravityY(this.normalGravityY)
-      
-      // Ensure player lands exactly at gameplayHeight (ground level)
-      const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-      this.player.setY(feetY)
-      body.updateFromGameObject()
       
       // Check for buffered jump input - if jump was pressed before landing, execute it now
       // Do this BEFORE setting isTransitioning to allow the buffered jump to execute
@@ -5378,13 +5416,26 @@ export class MainScene extends Phaser.Scene {
         // Execute buffered jump directly without checking canJump (we just landed, so we can jump)
         if (!this.isThrowing && !this.isCrouching) {
           // Execute the buffered jump
-          const isRunning = ((this.cursors.left?.isDown ?? false) || this.touchLeft || 
-                            (this.cursors.right?.isDown ?? false) || this.touchRight) && 
-                           Math.abs(body.velocity.x) > 10
+          // Get left/right state for jump direction determination
+          const leftDown = (this.cursors.left?.isDown ?? false) || this.touchLeft
+          const rightDown = (this.cursors.right?.isDown ?? false) || this.touchRight
+          const isRunning = (leftDown || rightDown) && Math.abs(body.velocity.x) > 10
           let jumpDirection: 'left' | 'right'
-          if (isRunning) {
+          // FIX: Check for left/right keys FIRST (even if running), then use running direction, then alternating
+          // This ensures that when keys are pressed, we use that direction, and when standing still, we alternate
+          if (leftDown) {
+            // Left is pressed - use left direction (regardless of running state)
+            jumpDirection = 'left'
+            this.facing = 'left'  // Update facing to match
+          } else if (rightDown) {
+            // Right is pressed - use right direction (regardless of running state)
+            jumpDirection = 'right'
+            this.facing = 'right'  // Update facing to match
+          } else if (isRunning) {
+            // No keys pressed but running - use current facing direction
             jumpDirection = this.facing
           } else {
+            // Neither key pressed and not running - use alternating standing direction
             jumpDirection = this.standingJumpDirection
             this.standingJumpDirection = this.standingJumpDirection === 'left' ? 'right' : 'left'
           }
@@ -5412,6 +5463,14 @@ export class MainScene extends Phaser.Scene {
             this.player.setTexture(firstAirFrame)
             body.setGravityY(this.jumpGravityY)
             body.setVelocityY(jumpVelocity)
+            // CRITICAL: Preserve horizontal velocity when jumping while running (buffered jump)
+            if (jumpDirection === 'left') {
+              body.setVelocityX(-PLAYER_SPEED)
+              this.player.setVelocityX(-PLAYER_SPEED)
+            } else {
+              body.setVelocityX(PLAYER_SPEED)
+              this.player.setVelocityX(PLAYER_SPEED)
+            }
           } else {
             const airFrameIndex = jumpDirection === 'right' ? 0 : 1
             const firstAirFrame = BITTEE_SPRITES.jumpAir[jumpDirection][airFrameIndex].key
@@ -5847,7 +5906,136 @@ export class MainScene extends Phaser.Scene {
         this.invulnerabilityTimer.remove(false)
         this.invulnerabilityTimer = undefined
       }
-      this.handleGameOver()
+      
+      // Death pause: Transition to stand pose, freeze everything, and fade to black/white over 3 seconds
+      this.isPausedForDeath = true  // Pause game (update loop will skip)
+      
+      const body = this.player.body as Phaser.Physics.Arcade.Body
+      
+      // Freeze all balls
+      this.balls.children.entries.forEach((ball) => {
+        const ballBody = (ball as Phaser.Physics.Arcade.Image).body as Phaser.Physics.Arcade.Body
+        if (ballBody) {
+          ballBody.setVelocity(0, 0)
+          ballBody.setAcceleration(0, 0)
+          ballBody.setAllowGravity(false)
+          ballBody.setImmovable(true)
+          ballBody.enable = false  // Completely disable physics
+        }
+      })
+      
+      // Stop all player movement and animations
+      this.player.setVelocity(0)
+      this.player.anims.stop()  // Stop any running animations
+      
+      // Reset all state flags
+      this.isThrowing = false
+      this.isTaunting = false
+      this.isJumping = false
+      this.isCrouching = false
+      this.justExitedCrouch = false
+      this.isTransitioning = false
+      this.transitionFrameCount = 0
+      this.isAirCrouching = false
+      
+      // Check if player is grounded - if not, keep them at current position (died in air)
+      const isGrounded = body ? this.isPlayerGrounded(body) : false
+      let deathY = this.player.y
+      
+      if (isGrounded) {
+        // If grounded, position at ground level
+        deathY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+        this.player.setY(deathY)
+      }
+      // If in air, keep current Y position (deathY already set to current position)
+      
+      if (body) {
+        // Completely disable body to prevent any physics interference
+        body.enable = false
+        body.setVelocity(0, 0)
+        body.setAcceleration(0, 0)
+        body.setAllowGravity(false)
+        body.setImmovable(true)
+        // Manually set body position to match sprite (without updateFromGameObject to prevent drift)
+        body.x = this.player.x
+        body.y = deathY
+      }
+      
+      // Immediately transition to bittee-1.png
+      this.player.setTexture('bittee-1')
+      this.player.clearTint()
+      this.player.setAlpha(1)
+      
+      // Death sequence: Transition through bittee-1 -> bittee-2 -> bittee-3 -> bittee-4 over 2 seconds
+      // Smooth crossfade transitions with longer duration and smoother easing
+      const transitionDuration = 500  // 0.5 seconds per transition
+      const totalDuration = 2000  // 2 seconds total
+      const fadeDuration = 250  // Longer fade for smoother transition
+      const fadeAlpha = 0.5  // Less dramatic fade (was 0.3, now 0.5 for smoother look)
+      
+      // Transition 1: bittee-1 -> bittee-2 (at 0.5s)
+      this.time.delayedCall(transitionDuration, () => {
+        // Smooth fade out, swap texture, then fade in
+        this.tweens.add({
+          targets: this.player,
+          alpha: fadeAlpha,
+          duration: fadeDuration,
+          ease: 'Sine.easeInOut',  // Smoother easing
+          onComplete: () => {
+            this.player.setTexture('bittee-2')
+            this.tweens.add({
+              targets: this.player,
+              alpha: 1,
+              duration: fadeDuration,
+              ease: 'Sine.easeInOut',  // Smoother easing
+            })
+          }
+        })
+      })
+      
+      // Transition 2: bittee-2 -> bittee-3 (at 1.0s)
+      this.time.delayedCall(transitionDuration * 2, () => {
+        this.tweens.add({
+          targets: this.player,
+          alpha: fadeAlpha,
+          duration: fadeDuration,
+          ease: 'Sine.easeInOut',
+          onComplete: () => {
+            this.player.setTexture('bittee-3')
+            this.tweens.add({
+              targets: this.player,
+              alpha: 1,
+              duration: fadeDuration,
+              ease: 'Sine.easeInOut',
+            })
+          }
+        })
+      })
+      
+      // Transition 3: bittee-3 -> bittee-4 (at 1.5s)
+      this.time.delayedCall(transitionDuration * 3, () => {
+        this.tweens.add({
+          targets: this.player,
+          alpha: fadeAlpha,
+          duration: fadeDuration,
+          ease: 'Sine.easeInOut',
+          onComplete: () => {
+            this.player.setTexture('bittee-4')
+            this.tweens.add({
+              targets: this.player,
+              alpha: 1,
+              duration: fadeDuration,
+              ease: 'Sine.easeInOut',
+            })
+          }
+        })
+      })
+      
+      // After 2 seconds, show game over modal
+      this.time.delayedCall(totalDuration, () => {
+        this.handleGameOver()
+      })
+      
       return
     }
 
@@ -7460,6 +7648,11 @@ export class MainScene extends Phaser.Scene {
     this.load.image(jumpSquat.left.key, jumpSquat.left.path)
     jumpAir.right.forEach(({ key, path }) => this.load.image(key, path))
     jumpAir.left.forEach(({ key, path }) => this.load.image(key, path))
+    // Load death sequence textures
+    this.load.image('bittee-1', getAssetPath('/assets/bittee-1.png'))
+    this.load.image('bittee-2', getAssetPath('/assets/bittee-2.png'))
+    this.load.image('bittee-3', getAssetPath('/assets/bittee-3.png'))
+    this.load.image('bittee-4', getAssetPath('/assets/bittee-4.png'))
     this.load.image(ROCK_SPRITE.key, ROCK_SPRITE.path)
     this.load.image(ROCK_HUD_SPRITE.key, ROCK_HUD_SPRITE.path)
     
@@ -7604,66 +7797,58 @@ export class MainScene extends Phaser.Scene {
     graphics.destroy()
   }
 
+  /**
+   * Safely syncs player body position to sprite position.
+   * CRITICAL: Never use updateFromGameObject() when body has an offset!
+   * updateFromGameObject() doesn't work correctly with offsets and will position the body incorrectly.
+   */
+  private syncPlayerBodyPosition(): void {
+    const body = this.player.body as Phaser.Physics.Arcade.Body | null
+    if (!body) {
+      return
+    }
+    
+    // Sync body position to sprite
+    body.x = this.player.x
+    body.y = this.player.y
+  }
+
+  /**
+   * NEW SIMPLIFIED COLLISION SETUP - NO OFFSETS
+   * Body position IS the collision position - eliminates Phaser's offset bug
+   * Visual offsets are applied to sprite only, not physics body
+   */
   private setupPlayerCollider(_scaledFootOffset: number): void {
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
     if (!playerBody) {
       return
     }
-    
-    // CRITICAL: During crouch exit transition, don't let collider setup move the player
-    // Store current position and restore it after setup
-    const wasTransitioning = this.isTransitioning && this.justExitedCrouch
-    const savedY = wasTransitioning ? this.player.y : 0
 
     // Use current display dimensions (accounts for crouch scaling)
-    // When crouching, the sprite is scaled to 85%, so we need to use the current display size
     const currentWidth = this.player.displayWidth
     const currentHeight = this.player.displayHeight
 
-    // Match collision box to green debug rectangle: expanded to be much larger
-    const WIDENED_WIDTH_MULTIPLIER = 12 // Expanded to make collision box 2-3x wider than previous (was 4.5)
-    const baseBodyWidth = currentWidth * 0.45 - 25  // Original base width
-    const bodyWidth = baseBodyWidth * WIDENED_WIDTH_MULTIPLIER  // Much wider collision box
-    const HEIGHT_MULTIPLIER = 4.5 // Also expand height proportionally
-    const bodyHeight = (currentHeight - 15) * HEIGHT_MULTIPLIER  // Expanded height
+    // Collision box dimensions (same as before for gameplay feel)
+    const WIDENED_WIDTH_MULTIPLIER = 12
+    const baseBodyWidth = currentWidth * 0.45 - 25
+    const bodyWidth = baseBodyWidth * WIDENED_WIDTH_MULTIPLIER
+    const HEIGHT_MULTIPLIER = 4.5
+    const bodyHeight = (currentHeight - 15) * HEIGHT_MULTIPLIER
     
-    // Get frame dimensions for offset calculation (offset is relative to frame, not display)
-    const frame = this.player.frame
-    const frameWidth = frame ? frame.width : this.player.width
-    const frameHeight = frame ? frame.height : this.player.height
-    
-    // Position collision box centered horizontally and bottom at ground level
-    // Sprite origin is (0.5, 1) - bottom center, sprite is at worldWidth/2 (centered)
-    // offsetX is relative to texture frame top-left, so we use frameWidth
-    // To center: offsetX = (frameWidth - bodyWidth) / 2
-    const offsetX = (frameWidth - bodyWidth) / 2  // Centered horizontally on sprite
-    
-    // Position collision box so its bottom aligns with sprite bottom
-    // Sprite origin is (0.5, 1) - bottom center, so sprite bottom is at spriteY
-    // Sprite is positioned at groundYPosition + PLAYER_FOOT_Y_OFFSET
-    // We want collision box bottom to align with sprite bottom (locked together)
-    // offsetY moves the collision box top-left corner relative to texture frame top-left
-    // With origin (0.5, 1), frame top-left is at: (sprite.x - frameWidth/2, sprite.y - frameHeight)
-    // Collision box bottom = sprite.y - frameHeight + offsetY + bodyHeight
-    // We want: collision box bottom = sprite.y (sprite bottom, locked together)
-    // So: sprite.y = sprite.y - frameHeight + offsetY + bodyHeight
-    // Therefore: offsetY = frameHeight - bodyHeight
-    const offsetY = frameHeight - bodyHeight  // Align collision box bottom with sprite bottom (locked together)
-    
-    // Apply the rectangle shape
+    // Set body size and offset
     playerBody.setSize(bodyWidth, bodyHeight)
-    playerBody.setOffset(offsetX, offsetY)
+    playerBody.setOffset(0, 0)
     
-    // CRITICAL: If we're in a transition, restore the saved position
-    // This prevents setupPlayerCollider from moving the player during crouch exit
-    if (wasTransitioning && savedY > 0) {
-      this.player.setY(savedY)
-      playerBody.x = this.player.x
-      playerBody.y = savedY
+    // Position body at ground level (only if not jumping)
+    if (!this.isJumping) {
+      const bodyBottomY = this.groundYPosition
+      playerBody.y = bodyBottomY - bodyHeight / 2
+      this.player.x = playerBody.x
+      this.player.y = bodyBottomY
+    } else {
+      // During jumps: just sync sprite to body
+      this.player.x = playerBody.x
     }
-    
-    // Don't call updateFromGameObject here - let the caller do it if needed
-    // This prevents unnecessary position updates that can cause jittering
   }
   
 
@@ -7844,7 +8029,7 @@ export class MainScene extends Phaser.Scene {
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body) {
         body.setVelocityY(0)
-        body.updateFromGameObject()
+        this.syncPlayerBodyPosition()
       }
     }
   }
@@ -8872,6 +9057,11 @@ export class MainScene extends Phaser.Scene {
 
     this.startOverlay?.setVisible(true).setActive(true).setInteractive()
     this.startPanel?.setVisible(true).setActive(true)
+    
+    // Ensure button is interactive when modal is shown
+    if (this.startButtonText) {
+      this.startButtonText.setInteractive({ useHandCursor: true })
+    }
 
     // Add keyboard handler for Spacebar to press Yella button when start modal is visible
     const keyboard = this.input.keyboard
@@ -9185,9 +9375,7 @@ export class MainScene extends Phaser.Scene {
       this.player.anims.stop()
       this.setIdlePose(true)
       this.setupPlayerCollider(0)
-      if (playerBody) {
-        playerBody.updateFromGameObject()
-      }
+      // setupPlayerCollider already syncs body position, no need to call updateFromGameObject
       
       // Clear all balls and bullets
       this.balls.clear(true, true)
@@ -9578,7 +9766,9 @@ export class MainScene extends Phaser.Scene {
       this.invulnerabilityTimer.remove(false)
       this.invulnerabilityTimer = undefined
     }
+    this.isPausedForDeath = false  // Reset death pause flag
     this.player.setAlpha(1)
+    this.player.clearTint()  // Reset tint in case death fade was active
     this.lastFired = 0
     this.setIdlePose(true)
     this.setupPlayerCollider(0)
@@ -9586,6 +9776,8 @@ export class MainScene extends Phaser.Scene {
     // Ensure gravity is enabled when starting/respawning
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
     if (playerBody) {
+      playerBody.enable = true  // Re-enable physics body
+      playerBody.setImmovable(false)
       playerBody.setAllowGravity(true)
     }
 
@@ -9636,6 +9828,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handleGameOver(): void {
+    // Reset death pause flag so modal and buttons work properly
+    this.isPausedForDeath = false
+    
     this.stopHeartbeat()
     // Stop all powerup sounds when Bittee dies
     this.timeSoundInstances.forEach(instance => {
@@ -9662,9 +9857,20 @@ export class MainScene extends Phaser.Scene {
     if (!this.isBossLevel) {
       // Cleanup is handled elsewhere for regular levels
     }
+    
+    // Reset player tint to normal (in case death fade is still active)
+    this.player.clearTint()
+    
+    // Re-enable physics for player (was frozen during death pause)
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    if (body) {
+      body.enable = true  // Re-enable physics body
+      body.setImmovable(false)
+      body.setAllowGravity(true)
+    }
+    
     this.player.setVelocity(0)
     this.setIdlePose(true)
-
 
     this.showStartModal('gameOver')
   }
@@ -9824,7 +10030,7 @@ export class MainScene extends Phaser.Scene {
     // Ensure Bittee is positioned correctly on ground for taunt
     this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
     if (body) {
-      body.updateFromGameObject()
+      this.syncPlayerBodyPosition()
     }
 
     this.isTaunting = true
