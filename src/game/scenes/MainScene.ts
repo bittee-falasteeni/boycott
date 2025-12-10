@@ -5097,17 +5097,11 @@ export class MainScene extends Phaser.Scene {
             this.player.setTexture(jumpFrame)
           }
           if (isOnGround && !atLeftEdge) {
-            const currentAnim = this.player.anims.currentAnim?.key
-            const isJumpAnim = currentAnim === 'bittee-jump-air-left' || currentAnim === 'bittee-jump-air-right' || 
-                               currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
-            // Force animation change if not already running left
-            // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
-            // Allow transition even if isTransitioning (safety reset handles stuck flags)
-            // FIX: Force animation to play if we're moving - don't rely on currentAnim check which might fail initially
-            if (!isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2' && currentAnim !== 'bittee-crouch') {
-              // Always play run animation when moving left (even if already playing, ensures it's active)
+            // Simple check like throwing: only block if in special states that should override running
+            if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
+              // Directly play animation like throwing does - no complex currentAnim checks
               this.player.anims.play('bittee-run-left', true)
-              // NEW: Let postUpdate() handle positioning - just ensure body is enabled
+              // Ensure body is enabled
               if (body) {
                 body.enable = true
                 body.setImmovable(false)
@@ -5143,17 +5137,11 @@ export class MainScene extends Phaser.Scene {
             this.player.setTexture(jumpFrame)
           }
           if (isOnGround && !atRightEdge) {
-            const currentAnim = this.player.anims.currentAnim?.key
-            const isJumpAnim = currentAnim === 'bittee-jump-air-left' || currentAnim === 'bittee-jump-air-right' || 
-                               currentAnim === 'bittee-jump-squat-left' || currentAnim === 'bittee-jump-squat-right'
-            // Force animation change if not already running right
-            // CRITICAL: Don't play run animation if jumping (prevents run pose when jump + movement pressed)
-            // Allow transition even if isTransitioning (safety reset handles stuck flags)
-            // FIX: Force animation to play if we're moving - don't rely on currentAnim check which might fail initially
-            if (!isJumpAnim && !this.isJumping && currentAnim !== 'bittee-throw' && currentAnim !== 'bittee-taunt' && currentAnim !== 'bittee-taunt2') {
-              // Always play run animation when moving right (even if already playing, ensures it's active)
+            // Simple check like throwing: only block if in special states that should override running
+            if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
+              // Directly play animation like throwing does - no complex currentAnim checks
               this.player.anims.play('bittee-run-right', true)
-              // NEW: Let postUpdate() handle positioning - just ensure body is enabled
+              // Ensure body is enabled
               if (body) {
                 body.enable = true
                 body.setImmovable(false)
@@ -9609,11 +9597,18 @@ export class MainScene extends Phaser.Scene {
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body) {
         body.x = worldWidth / 2
+        // Ensure body is enabled and ready for movement
+        body.enable = true
+        body.setImmovable(false)
+        body.setAllowGravity(true)
       }
       // Clear any stuck transition flags
       this.isTransitioning = false
       this.justExitedCrouch = false
       this.transitionFrameCount = 0
+      // Ensure animation is properly initialized
+      this.player.anims.stop()
+      this.player.anims.play('bittee-idle', true)
     }
     
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
@@ -10043,6 +10038,8 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
+    // Directly set taunt state and play animation like throwing does
+    this.isTaunting = true
     this.player.setVelocityX(0)
     if (body) {
       body.setVelocity(0, 0)
@@ -10059,21 +10056,18 @@ export class MainScene extends Phaser.Scene {
     if (body) {
       this.syncPlayerBodyPosition()
     }
-
-    this.isTaunting = true
+    // Directly play taunt like throwing does - stop animation and set texture
     this.player.setFlipX(false)
     // Toggle between taunt and taunt2 each time taunt is triggered
-    // currentTauntFrame starts at 1, so first taunt uses 'bittee-taunt', then toggle to 2 for next time
     const tauntKey = this.currentTauntFrame === 1 ? 'bittee-taunt' : 'bittee-taunt2'
     const tauntSprite = this.currentTauntFrame === 1 ? BITTEE_SPRITES.taunt : BITTEE_SPRITES.taunt2
     // Toggle for next time (1 -> 2, 2 -> 1)
     this.currentTauntFrame = this.currentTauntFrame === 1 ? 2 : 1
-    // Stop any current animation first
+    // Stop any current animation first (like throwing does)
     this.player.anims.stop()
-    // Always use texture directly to ensure the correct PNG is shown
-    // Set texture BEFORE playing animation so it doesn't get overridden
+    // Set texture directly (like throwing does with throw1)
     this.player.setTexture(tauntSprite.key)
-    // Play the animation if it exists (it will use the texture we just set)
+    // Play the animation if it exists
     if (this.anims.exists(tauntKey)) {
       this.player.anims.play(tauntKey)
     }
