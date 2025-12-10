@@ -1456,27 +1456,29 @@ export class MainScene extends Phaser.Scene {
     // Only lock X and set immovable when truly idle (not running/throwing/taunting/crouching)
     if (isIdle && !isRunning) {
       body.setVelocityX(0)  // Lock X to prevent drift when idle
+      body.setVelocityY(0)  // Lock Y velocity
       body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
-      // Also lock body X position to prevent any drift
-      body.x = this.player.x
+      // Lock body position to prevent any drift or jitter
+      const targetX = this.player.x
+      body.x = targetX
+      body.y = bodyCenterY  // Re-lock Y to ensure it's exact
     } else {
       body.setImmovable(false)  // Allow movement when running/throwing/taunting
     }
     
     body.setAllowGravity(true)  // Keep enabled for ground detection
 
-    // Apply visual offset for idle pose
-    let visualOffsetY = 0
-    if (!this.isThrowing && !this.isTaunting && !this.isTransitioning && !this.justExitedCrouch) {
-      const currentAnim = this.player.anims.currentAnim?.key
-      if (currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand') {
-        visualOffsetY = 10  // Stand pose visual offset
-      }
+    // Sync sprite to body - no visual offset to prevent jitter
+    // When idle, use exact body position
+    if (isIdle && !isRunning) {
+      // For idle: sprite center aligns with body center (no offset)
+      this.player.x = body.x
+      this.player.y = body.y + (body.height / 2)
+    } else {
+      // For other states: normal sync
+      this.player.x = body.x
+      this.player.y = body.y + (body.height / 2)
     }
-    
-    // Sync sprite to body
-    this.player.x = body.x
-    this.player.y = body.y + (body.height / 2) + visualOffsetY
   }
 
   update(time: number): void {
@@ -4810,15 +4812,11 @@ export class MainScene extends Phaser.Scene {
       // CRITICAL: Skip position adjustments during crouch exit transition to prevent jittering
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body && this.isPlayerGrounded(body) && !this.isCrouching) {
-        // Add 10px visual offset for stand pose - sprite appears 10px lower
-        // This is PURELY visual - physics body stays at normal position
+        // No visual offset - use exact ground position to prevent jitter
+        // postUpdate() will handle positioning consistently
         const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-        const standPoseY = groundFeetY + 10  // +10px visual offset for stand pose
-        
-        // Set sprite at visual position (purely visual offset)
-        this.player.setY(standPoseY)
-        // Let body stay at normal position - don't interfere with physics
-        // The update loop will lock the sprite position every frame
+        this.player.setY(groundFeetY)
+        // Body position will be set in postUpdate() - don't interfere here
       }
       this.player.setFlipX(false)
       // Now play idle animation
