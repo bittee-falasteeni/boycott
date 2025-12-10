@@ -4219,7 +4219,7 @@ export class MainScene extends Phaser.Scene {
             
             // Reset Bittee position and state
             const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
-            this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+            this.player.setPosition(this.scale.width / 2, this.groundYPosition)  // Feet at ground level
             this.player.setVelocity(0, 0)
             if (playerBody) {
               playerBody.setVelocity(0, 0)
@@ -4811,7 +4811,7 @@ export class MainScene extends Phaser.Scene {
         // No visual offset - use exact ground position to prevent jitter
         // postUpdate() will handle positioning consistently
         const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
-        this.player.setY(groundFeetY)
+          this.player.setY(groundFeetY)
         // Body position will be set in postUpdate() - don't interfere here
       }
       this.player.setFlipX(false)
@@ -5186,14 +5186,14 @@ export class MainScene extends Phaser.Scene {
     } else {
       // Not moving - stop horizontal velocity
       this.player.setVelocityX(0)
-      if (body) {
-        body.setVelocityX(0)
-      }
-      // Stop run sound when not moving
-      if (this.runSoundPlaying) {
-        this.stopSound('bittee-run-sound')
-        this.runSoundPlaying = false
-      }
+        if (body) {
+          body.setVelocityX(0)
+        }
+        // Stop run sound when not moving
+        if (this.runSoundPlaying) {
+          this.stopSound('bittee-run-sound')
+          this.runSoundPlaying = false
+        }
       
       // If in idle pose, just ensure body is enabled - postUpdate() handles positioning
       const currentAnim = this.player.anims.currentAnim?.key
@@ -6055,7 +6055,7 @@ export class MainScene extends Phaser.Scene {
       
       // After 2 seconds, show game over modal
       this.time.delayedCall(totalDuration, () => {
-        this.handleGameOver()
+      this.handleGameOver()
       })
       
       return
@@ -6356,30 +6356,30 @@ export class MainScene extends Phaser.Scene {
             }
           })
           
-          if (activeCount === 0 && !this.isBossLevel && this.isGameActive) {
-            // Use a flag to prevent multiple level advances
-            if (!this.isAdvancingLevel) {
-              this.isAdvancingLevel = true
-              this.time.delayedCall(500, () => {
-                try {
-                  if (this.isGameActive && !this.isBossLevel && this.scene) {
+        if (activeCount === 0 && !this.isBossLevel && this.isGameActive) {
+          // Use a flag to prevent multiple level advances
+          if (!this.isAdvancingLevel) {
+            this.isAdvancingLevel = true
+            this.time.delayedCall(500, () => {
+              try {
+                if (this.isGameActive && !this.isBossLevel && this.scene) {
                     // Reset the flag before calling so advanceLevel() can set it itself
                     this.isAdvancingLevel = false
-                    this.advanceLevel()
+                  this.advanceLevel()
                   } else {
                     this.isAdvancingLevel = false
-                  }
-                } catch (err: unknown) {
-                  console.error('Error in advanceLevel:', err)
-                  this.isAdvancingLevel = false
                 }
-              })
-            }
+              } catch (err: unknown) {
+                console.error('Error in advanceLevel:', err)
+                this.isAdvancingLevel = false
+              }
+            })
           }
         }
-      } catch (err: unknown) {
-        console.error('Error checking ball count:', err)
       }
+    } catch (err: unknown) {
+      console.error('Error checking ball count:', err)
+    }
     })
   }
 
@@ -6651,34 +6651,34 @@ export class MainScene extends Phaser.Scene {
     let tween: Phaser.Tweens.Tween | undefined
     if (duration > 0) {
       tween = this.tweens.add({
-        targets: progressData,
-        width: 0,
-        duration: duration,
-        ease: 'Linear',
-        onUpdate: () => {
-          if (progressBar && progressBar.active) {
-            const currentWidth = progressData.width
-            progressBar.clear()
-            progressBar.fillStyle(0x7fb069, 1)
-            const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
-            progressBar.fillRect(barX, barY, clampedWidth, barHeight)
-          }
-          // Fade text as time runs out
-          if (text && text.active) {
-            const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
-            text.setAlpha(progress)
-          }
-        },
-        onComplete: () => {
-          const indicator = this.powerUpIndicators.get(powerUpKey)
-          if (indicator) {
-            indicator.text.destroy()
-            indicator.progressBar.destroy()
-            indicator.progressBarBg.destroy()
-            this.powerUpIndicators.delete(powerUpKey)
-          }
-        },
-      })
+      targets: progressData,
+      width: 0,
+      duration: duration,
+      ease: 'Linear',
+      onUpdate: () => {
+        if (progressBar && progressBar.active) {
+          const currentWidth = progressData.width
+          progressBar.clear()
+          progressBar.fillStyle(0x7fb069, 1)
+          const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
+          progressBar.fillRect(barX, barY, clampedWidth, barHeight)
+        }
+        // Fade text as time runs out
+        if (text && text.active) {
+          const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
+          text.setAlpha(progress)
+        }
+      },
+      onComplete: () => {
+        const indicator = this.powerUpIndicators.get(powerUpKey)
+        if (indicator) {
+          indicator.text.destroy()
+          indicator.progressBar.destroy()
+          indicator.progressBarBg.destroy()
+          this.powerUpIndicators.delete(powerUpKey)
+        }
+      },
+    })
     } else {
       // Duration 0 means it stays until manually removed (like Super Rock ammo)
       // Keep progress bar full and text visible
@@ -7853,6 +7853,11 @@ export class MainScene extends Phaser.Scene {
     const currentWidth = this.player.displayWidth
     const currentHeight = this.player.displayHeight
 
+    // #region agent log
+    const currentAnim = this.player.anims.currentAnim?.key
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:7853',message:'setupPlayerCollider entry',data:{currentAnim,currentWidth,currentHeight,isJumping:this.isJumping,groundYPosition:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+
     // Collision box dimensions (same as before for gameplay feel)
     const WIDENED_WIDTH_MULTIPLIER = 12
     const baseBodyWidth = currentWidth * 0.45 - 25
@@ -7864,12 +7869,20 @@ export class MainScene extends Phaser.Scene {
     playerBody.setSize(bodyWidth, bodyHeight)
     playerBody.setOffset(0, 0)
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:7864',message:'setupPlayerCollider after setSize',data:{currentAnim,bodyHeight,bodyWidth,oldBodyHeight:playerBody.height,oldBodyWidth:playerBody.width,currentHeight,currentWidth},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    
     // Position body at ground level (only if not jumping)
     if (!this.isJumping) {
       const bodyBottomY = this.groundYPosition
       playerBody.y = bodyBottomY - bodyHeight / 2
       this.player.x = playerBody.x
       this.player.y = bodyBottomY
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:7872',message:'setupPlayerCollider positioned',data:{currentAnim,bodyBottomY,playerY:this.player.y,bodyY:playerBody.y,bodyHeight,groundYPosition:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
     } else {
       // During jumps: just sync sprite to body
       this.player.x = playerBody.x
@@ -8944,8 +8957,8 @@ export class MainScene extends Phaser.Scene {
         // Hide score text in top right during victory
         this.scoreText?.setVisible(false)
         this.scoreTriangleText?.setVisible(false)
-        
-        if (this.scoreLabelText && this.scoreNumberText) {
+
+      if (this.scoreLabelText && this.scoreNumberText) {
         // Calculate positions first - shift "Boycotted:" and number down more
         const boycottY = panelHeight / 2 - 160  // Shifted up more to be above respawn button (from -140 to -160)
         // Position number between "Boycotted:" and "Now boycott these irl..", shifted down more
@@ -9641,7 +9654,7 @@ export class MainScene extends Phaser.Scene {
       this.player.anims.stop()
       this.player.anims.play('bittee-idle', true)
     }
-    
+
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
     // After clearing, if we're in a boss level, the triangle will be recreated in updateHud
@@ -10384,7 +10397,7 @@ export class MainScene extends Phaser.Scene {
       
       // FIX: Create triangle indicator above jet when hit (only one per fly-by)
       if (!this.jetHitIndicatorActive) {
-        this.createEnemyHitIndicator(enemy, 1.2)
+      this.createEnemyHitIndicator(enemy, 1.2)
         this.jetHitIndicatorActive = true
       }
       
@@ -12283,10 +12296,10 @@ export class MainScene extends Phaser.Scene {
           const isScoreTriangle = text === scoreTriangleRef || text.getData('isScoreTriangle') === true
           const isEnemyHitIndicator = enemyHitIndicatorRefs.has(text) || text.getData('isEnemyHitIndicator') === true
           if (!isScoreTriangle && !isEnemyHitIndicator) {
-            try {
-              text.destroy()
-            } catch (e) {
-              // Ignore errors
+          try {
+            text.destroy()
+          } catch (e) {
+            // Ignore errors
             }
           }
         }
