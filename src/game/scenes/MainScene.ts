@@ -6096,12 +6096,12 @@ export class MainScene extends Phaser.Scene {
     })
 
     this.time.delayedCall(200, () => {
-      // Keep Bittee at current X position
+      // Keep Bittee at current X position - preserve where he was when hit
       // Only move Y to ground if he's on the ground, otherwise keep his current Y position (if in air)
       const body = this.player.body as Phaser.Physics.Arcade.Body
       const isOnGround = body && (body.blocked.down || body.touching.down || body.onFloor())
-      // Restore X position from when crouch started
-      const restoreX = this.crouchStartX
+      // Preserve current X position instead of using crouchStartX
+      const currentX = this.player.x
       
       // Reset all state flags
       this.isThrowing = false
@@ -6131,12 +6131,17 @@ export class MainScene extends Phaser.Scene {
         this.player.setY(this.groundYPosition)  // Feet at ground level
         if (body) {
           body.y = this.groundYPosition - (body.height / 2)
-          // Ensure X position is preserved
-          body.x = restoreX
-          this.player.x = restoreX
+          // Preserve X position - don't change it
+          body.x = currentX
+          this.player.x = currentX
+        }
+      } else {
+        // In air: preserve both X and Y positions
+        if (body) {
+          body.x = currentX
+          this.player.x = currentX
         }
       }
-      // Otherwise, keep his current Y position (he's in the air)
       
       this.setIdlePose(true)
     })
@@ -9672,6 +9677,19 @@ export class MainScene extends Phaser.Scene {
     // FIX: Clear all triangles when starting/respawning game (but preserve scoreTriangleText for boss levels)
     this.clearAllTriangles()
     // After clearing, if we're in a boss level, the triangle will be recreated in updateHud
+    
+    // FIX: Clear all Maps to prevent memory leaks when starting/respawning
+    this.aimingTriangles.clear()
+    this.projectedHitIndicators.clear()
+    this.enemyHitIndicators.clear()
+    this.bulletTargetMap.clear()
+    // Clear tank hit indicator timers
+    this.tankHitIndicatorTimers.forEach((timer) => {
+      if (timer) {
+        timer.remove(false)
+      }
+    })
+    this.tankHitIndicatorTimers.clear()
 
     // Stop celebration music (palestine-8bit) if respawning from victory modal
     if (this.bossPhase === 'victory' && this.bossMusic && this.bossMusic.isPlaying) {
@@ -10032,6 +10050,19 @@ export class MainScene extends Phaser.Scene {
         
         // FIX: Clear all triangles when advancing to new level
         this.clearAllTriangles()
+        
+        // FIX: Clear all Maps to prevent memory leaks
+        this.aimingTriangles.clear()
+        this.projectedHitIndicators.clear()
+        this.enemyHitIndicators.clear()
+        this.bulletTargetMap.clear()
+        // Clear tank hit indicator timers
+        this.tankHitIndicatorTimers.forEach((timer) => {
+          if (timer) {
+            timer.remove(false)
+          }
+        })
+        this.tankHitIndicatorTimers.clear()
         
         this.spawnLevelWave(this.currentLevelIndex)
         
