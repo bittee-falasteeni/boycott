@@ -3153,7 +3153,7 @@ export class MainScene extends Phaser.Scene {
 
     this.isPausedForSettings = false
     this.physics.world.resume()
-    this.tweens.pauseAll()
+    this.tweens.resumeAll()  // Resume all tweens when closing settings (was pauseAll - bug fix)
     this.time.timeScale = this.previousTimeScale
     if (this.settingsButton) {
       this.settingsButton.setAlpha(1)
@@ -5961,13 +5961,16 @@ export class MainScene extends Phaser.Scene {
     this.updateHud()
     this.updateHeartbeat()
 
-    this.tweens.add({
+    // Create blinking tween for invulnerability - store reference so it can be resumed if paused
+    const blinkTween = this.tweens.add({
       targets: this.player,
       alpha: { from: 0.2, to: 1 },
       duration: 200,
       ease: 'Sine.easeInOut',
       repeat: 4,
     })
+    // Store tween reference so it can be properly resumed after settings panel
+    this.player.setData('invulnerabilityBlinkTween', blinkTween)
 
     if (this.lives <= 0) {
       // Play heartbeat die sound
@@ -6128,6 +6131,12 @@ export class MainScene extends Phaser.Scene {
     this.invulnerabilityTimer = this.time.delayedCall(1000, () => {
       this.isInvulnerable = false
       this.player.setAlpha(1)
+      // Clean up blink tween reference
+      const blinkTween = this.player.getData('invulnerabilityBlinkTween') as Phaser.Tweens.Tween | undefined
+      if (blinkTween) {
+        this.tweens.killTweensOf(this.player)
+        this.player.setData('invulnerabilityBlinkTween', undefined)
+      }
       this.invulnerabilityTimer = undefined
     })
 
@@ -6473,16 +6482,14 @@ export class MainScene extends Phaser.Scene {
       body.setBounce(0.3, 0.3)
       body.setCollideWorldBounds(true)
       body.setFrictionX(0.5)  // Add friction to slow down sliding
-      // Widen collision box to make powerups easier to collect (use offset to expand hit area without affecting visual position)
+      // Widen collision box to make powerups easier to collect
+      // Expand collision box by 2x - Phaser centers it automatically
       const originalWidth = powerUp.width * powerUp.scaleX
       const originalHeight = powerUp.height * powerUp.scaleY
-      // Expand collision box by 2x but center it using offset so visual position stays the same
       const expandedWidth = originalWidth * 2
       const expandedHeight = originalHeight * 2
-      const offsetX = (originalWidth - expandedWidth) / 2
-      const offsetY = (originalHeight - expandedHeight) / 2
+      // Set larger size - Phaser will center it automatically, keeping visual position the same
       body.setSize(expandedWidth, expandedHeight)
-      body.setOffset(offsetX, offsetY)
       // Give it a small upward velocity to make it pop out
       body.setVelocityY(-100)
       
@@ -6616,8 +6623,8 @@ export class MainScene extends Phaser.Scene {
         this.autoFireLastShot = 0
         this.autoFireStartTime = this.time.now
         
-        // Show indicator with 4 second timer (no progress bar for LeLe)
-        this.showPowerUpIndicator('LeLe Sbeed', 4000, false)  // false = no progress bar
+        // Show indicator with 4 second timer (with progress bar like other powerups)
+        this.showPowerUpIndicator('LeLe Sbeed', 4000, true)  // true = show progress bar
         
         // Set timer to disable auto-fire after 4 seconds
         this.autoFireTimer = this.time.delayedCall(4000, () => {
@@ -6701,8 +6708,8 @@ export class MainScene extends Phaser.Scene {
     let fontSize: string
     let scale: number
     if (label === 'Zaytoon Force') {
-      fontSize = '40px'
-      scale = 1.5
+      fontSize = '60px'  // Made larger as requested
+      scale = 2.0
     } else if (label === 'Dawood\'s Throw') {
       fontSize = '40px'
       scale = 1.5
@@ -7183,11 +7190,16 @@ export class MainScene extends Phaser.Scene {
     const infinityText = this.throwButton.getData('infinityText') as Phaser.GameObjects.Text | undefined
     if (infinityText) {
       if (this.isAutoFireActive) {
-        // Show countdown for LeLe (3, 2, 1, 0)
+        // Show countdown for LeLe (3, 2, 1, 0) - start from 3, not 4
         const elapsed = this.time.now - this.autoFireStartTime
         const duration = 4000  // 4 seconds
         const remaining = Math.max(0, duration - elapsed)
-        const countdown = Math.ceil(remaining / 1000)
+        // Calculate countdown: 3, 2, 1, 0 (not 4, 3, 2, 1)
+        // When remaining is 4000-3001ms, show 3
+        // When remaining is 3000-2001ms, show 2
+        // When remaining is 2000-1001ms, show 1
+        // When remaining is 1000-1ms, show 0
+        const countdown = Math.max(0, Math.ceil((remaining - 1) / 1000))
         infinityText.setText(countdown.toString())
         infinityText.setVisible(true)
       } else if (nextRockType === 'normal') {
