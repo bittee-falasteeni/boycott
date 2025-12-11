@@ -758,6 +758,22 @@ export class MainScene extends Phaser.Scene {
     this.load.start()
   }
 
+  /**
+   * Provides haptic feedback when buttons are pressed.
+   * Works on Android devices, gracefully fails on iOS Safari (no error, just no vibration).
+   * @param duration - Vibration duration in milliseconds (default: 50ms for button press)
+   */
+  private vibrate(duration: number = 50): void {
+    // Check if Vibration API is supported
+    if ('vibrate' in navigator && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate(duration)
+      } catch (err) {
+        // Silently fail - some browsers may throw errors
+      }
+    }
+  }
+
   create(): void {
     
     this.score = 0
@@ -2360,7 +2376,10 @@ export class MainScene extends Phaser.Scene {
     throwButtonContainer.setData('originalY', throwButtonCenterY)  // Store original Y position for pressed effect
     this.throwButton = throwButtonContainer
 
-    this.tauntButton.on('pointerdown', () => this.tryTaunt())
+    this.tauntButton.on('pointerdown', () => {
+      this.vibrate(50) // Haptic feedback on button press
+      this.tryTaunt()
+    })
 
     // FIX: Support multiple simultaneous touches on mobile
     // Use pointer tracking instead of simple boolean flags to support multi-touch
@@ -2390,6 +2409,7 @@ export class MainScene extends Phaser.Scene {
     this.rightButton.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       rightButtonPointers.add(pointer.id)
       this.touchRight = true
+      this.vibrate(50) // Haptic feedback on button press
     })
     this.rightButton.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       rightButtonPointers.delete(pointer.id)
@@ -2423,6 +2443,7 @@ export class MainScene extends Phaser.Scene {
     this.downButton.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       downButtonPointers.add(pointer.id)
       this.touchDown = true
+      this.vibrate(50) // Haptic feedback on button press
     })
     this.downButton.on('pointerup', (pointer: Phaser.Input.Pointer) => {
       downButtonPointers.delete(pointer.id)
@@ -2440,6 +2461,7 @@ export class MainScene extends Phaser.Scene {
     this.throwButton.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       throwButtonPointers.add(pointer.id)
       this.touchThrow = true
+      this.vibrate(50) // Haptic feedback on button press
       // Only start aiming if not already aiming (prevent multiple aim starts)
       if (!this.isAiming) {
         this.isAiming = true
@@ -2553,6 +2575,7 @@ export class MainScene extends Phaser.Scene {
     this.settingsButton.setScrollFactor(0)
     this.settingsButton.setInteractive({ useHandCursor: true })
     this.settingsButton.on('pointerdown', () => {
+      this.vibrate(50) // Haptic feedback on button press
       if (!this.isPausedForSettings) {
         this.openSettingsPanel()
       }
@@ -7856,11 +7879,6 @@ export class MainScene extends Phaser.Scene {
     const currentWidth = this.player.displayWidth
     const currentHeight = this.player.displayHeight
 
-    // #region agent log
-    const currentAnim = this.player.anims.currentAnim?.key
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:7853',message:'setupPlayerCollider entry',data:{currentAnim,currentWidth,currentHeight,isJumping:this.isJumping,groundYPosition:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-
     // Collision box dimensions (same as before for gameplay feel)
     const WIDENED_WIDTH_MULTIPLIER = 12
     const baseBodyWidth = currentWidth * 0.45 - 25
@@ -7872,20 +7890,12 @@ export class MainScene extends Phaser.Scene {
     playerBody.setSize(bodyWidth, bodyHeight)
     playerBody.setOffset(0, 0)
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:7864',message:'setupPlayerCollider after setSize',data:{currentAnim,bodyHeight,bodyWidth,oldBodyHeight:playerBody.height,oldBodyWidth:playerBody.width,currentHeight,currentWidth},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    
     // Position body at ground level (only if not jumping)
     if (!this.isJumping) {
       const bodyBottomY = this.groundYPosition
       playerBody.y = bodyBottomY - bodyHeight / 2
       this.player.x = playerBody.x
       this.player.y = bodyBottomY
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:7872',message:'setupPlayerCollider positioned',data:{currentAnim,bodyBottomY,playerY:this.player.y,bodyY:playerBody.y,bodyHeight,groundYPosition:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
     } else {
       // During jumps: just sync sprite to body
       this.player.x = playerBody.x
@@ -8747,6 +8757,7 @@ export class MainScene extends Phaser.Scene {
       startButton.setData('isRespawnButton', false)
       startButton.setInteractive({ useHandCursor: true })
       startButton.on('pointerdown', () => {
+        this.vibrate(50) // Haptic feedback on button press
         // Button press effect on click - shift up into shadow above
         const originalY = startButton.getData('originalY') as number
         const pressOffset = 5  // Shift up by 5 pixels when pressed (presses into upward shadow)
