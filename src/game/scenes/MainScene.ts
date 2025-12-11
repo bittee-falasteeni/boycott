@@ -110,7 +110,8 @@ const ROCK_TARGET_SIZE = 72
 // Player origin is at bottom (0.5, 1), so Y position = where feet are.
 // Negative values shift sprite UP into the collision box
 // Positive values shift sprite DOWN (lower on screen)
-const PLAYER_FOOT_Y_OFFSET = 3  // Shift Bittee slightly lower on Y axis
+const PLAYER_FOOT_Y_OFFSET_IDLE = 13  // Shift Bittee ~10px lower when idle/standing (was 3)
+const PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING = -2  // Shift Bittee slightly higher when running
 
 // Ground position offset - locked to prevent changes from affecting Bittee's position
 // Negative moves ground UP (higher on screen), positive moves DOWN
@@ -1296,7 +1297,12 @@ export class MainScene extends Phaser.Scene {
           return
         }
 
-        this.handlePlayerHit(ball)
+        try {
+          this.handlePlayerHit(ball)
+        } catch (err) {
+          console.error('[COLLISION ERROR] Error in handlePlayerHit:', err)
+          console.error('[COLLISION ERROR] Ball:', { x: ball.x, y: ball.y, active: ball.active })
+        }
       },
       undefined,
       this,
@@ -1334,8 +1340,16 @@ export class MainScene extends Phaser.Scene {
           return  // Too soon after spawn, ignore collection
         }
         const powerUpType = powerUp.getData('type') as 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'
-        this.collectPowerUp(powerUpType)
-        powerUp.destroy()
+        try {
+          this.collectPowerUp(powerUpType)
+        } catch (err) {
+          console.error('[COLLISION ERROR] Error in collectPowerUp:', err)
+        }
+        try {
+          powerUp.destroy()
+        } catch (err) {
+          console.error('[COLLISION ERROR] Error destroying powerup:', err)
+        }
       },
       undefined,
       this,
@@ -1381,7 +1395,11 @@ export class MainScene extends Phaser.Scene {
           const hasShield = this.shieldBubble && this.shieldBubble.active
           if ((!this.isInvulnerable && !hasShield) && enemy && enemy.active) {
             // Force immediate hit - no additional checks needed
-            this.handlePlayerHit(enemy as unknown as Phaser.Physics.Arcade.Image)
+            try {
+              this.handlePlayerHit(enemy as unknown as Phaser.Physics.Arcade.Image)
+            } catch (err) {
+              console.error('[COLLISION ERROR] Error in handlePlayerHit (enemy):', err)
+            }
           } else if (hasShield && !this.isInvulnerable) {
             // Fix isInvulnerable if shield exists
             this.isInvulnerable = true
@@ -1490,9 +1508,22 @@ export class MainScene extends Phaser.Scene {
 
     // Sync sprite to body - ensure feet are at ground level for all states
     // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
-    // Body bottom should be at groundYPosition, so set sprite Y directly to groundYPosition
+    // Use different Y offsets for idle vs running poses
     this.player.x = body.x
-    this.player.y = this.groundYPosition  // Feet at ground level for all grounded states (idle, running, taunting)
+    const animKey = this.player.anims.currentAnim?.key
+    const isRunningAnim = animKey === 'bittee-run-left' || animKey === 'bittee-run-right'
+    const isIdleAnim = (animKey === 'bittee-idle' || animKey === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
+    
+    if (isIdleAnim) {
+      // Idle/stand pose: feet ~10px lower
+      this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+    } else if (isRunningAnim) {
+      // Running pose: feet slightly higher
+      this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING
+    } else {
+      // Other states (taunting, etc): use default offset
+      this.player.y = this.groundYPosition + 3  // Default offset
+    }
   }
 
   update(time: number): void {
@@ -1588,35 +1619,100 @@ export class MainScene extends Phaser.Scene {
     // The collision box will stay attached via the offset we set in setupPlayerCollider
     // NOTE: Post-physics sync is now handled in postUpdate() which runs AFTER Phaser's physics step
 
-    this.handleTaunt()
-    this.handleJump()
-    this.handlePlayerMovement()
-    this.handleThrowing(time)
-    this.handleAutoFire(time)  // Handle auto-fire for green slingshot
-    this.cleanupBullets()
-    this.updatePowerUps()
-    this.updateProjectedHitIndicators()
+    // Wrap critical operations in try-catch to prevent crashes
+    try {
+      this.handleTaunt()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in handleTaunt:', err)
+    }
+    
+    try {
+      this.handleJump()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in handleJump:', err)
+    }
+    
+    try {
+      this.handlePlayerMovement()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in handlePlayerMovement:', err)
+    }
+    
+    try {
+      this.handleThrowing(time)
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in handleThrowing:', err)
+    }
+    
+    try {
+      this.handleAutoFire(time)  // Handle auto-fire for green slingshot
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in handleAutoFire:', err)
+    }
+    
+    try {
+      this.cleanupBullets()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in cleanupBullets:', err)
+    }
+    
+    try {
+      this.updatePowerUps()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in updatePowerUps:', err)
+    }
+    
+    try {
+      this.updateProjectedHitIndicators()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in updateProjectedHitIndicators:', err)
+    }
+    
     // Update ammo display to refresh countdown for LeLe
-    if (this.isAutoFireActive) {
-      this.updateAmmoDisplay()
-    }
-    // Update aiming triangles if aiming, otherwise remove them
-    if (this.isAiming) {
-      this.updateAimingTriangle()
-    } else {
-      // FIX: Make sure triangles are removed when not aiming
-      if (this.aimingTriangles.size > 0) {
-        this.removeAimingTriangle()
+    try {
+      if (this.isAutoFireActive) {
+        this.updateAmmoDisplay()
       }
-      // FIX: Also aggressively clean up any orphaned triangles, especially around ground level
-      this.cleanupOrphanedTriangles()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in updateAmmoDisplay:', err)
     }
-    this.updateHeartbeat()
+    
+    // Update aiming triangles if aiming, otherwise remove them
+    try {
+      if (this.isAiming) {
+        this.updateAimingTriangle()
+      } else {
+        // FIX: Make sure triangles are removed when not aiming
+        if (this.aimingTriangles.size > 0) {
+          this.removeAimingTriangle()
+        }
+        // FIX: Also aggressively clean up any orphaned triangles, especially around ground level
+        this.cleanupOrphanedTriangles()
+      }
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in aiming triangles:', err)
+    }
+    
+    try {
+      this.updateHeartbeat()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in updateHeartbeat:', err)
+    }
+    
     // Check ball bounces AFTER physics step but before storing velocities
     // This ensures prevVelY is from the previous frame
-    this.checkBallBounces()
+    try {
+      this.checkBallBounces()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in checkBallBounces:', err)
+    }
+    
     // Store velocities at the END of update for next frame's comparison
-    this.storeBallVelocities()
+    try {
+      this.storeBallVelocities()
+    } catch (err) {
+      console.error('[UPDATE ERROR] Error in storeBallVelocities:', err)
+    }
     
     // Periodic memory cleanup for mobile (every 5 seconds)
     if (!this.lastMemoryCleanup || time - this.lastMemoryCleanup > 5000) {
@@ -1678,7 +1774,8 @@ export class MainScene extends Phaser.Scene {
     // Monitor position for a few frames after transition completes
     // Only correct drift if body is NOT touching ground (if touching, it's stable)
     if (this.postTransitionFrameCount > 0) {
-      const expectedY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+      // Use idle offset for expected position
+      const expectedY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
       const actualY = this.player.y
       const diff = Math.abs(actualY - expectedY)
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
@@ -1865,7 +1962,7 @@ export class MainScene extends Phaser.Scene {
     // This prevents any other systems from moving the player after we lock position
     // Reuse body variable declared at start of update()
     const finalBody = this.player.body as Phaser.Physics.Arcade.Body | null
-    const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
     
     // Lock position during crouch exit transition
     if (this.isTransitioning && this.justExitedCrouch && !this.isJumping) {
@@ -1904,7 +2001,15 @@ export class MainScene extends Phaser.Scene {
     }
     } catch (error) {
       // Prevent crashes on mobile by catching errors in update loop
-      console.error('[UPDATE ERROR] Error in update loop:', error)
+      console.error('[UPDATE ERROR] Fatal error in update loop:', error)
+      console.error('[UPDATE ERROR] Stack trace:', (error as Error)?.stack)
+      console.error('[UPDATE ERROR] Game state:', {
+        level: this.currentLevelIndex + 1,
+        isGameActive: this.isGameActive,
+        isPaused: this.isPausedForSettings,
+        ballCount: this.balls?.children.size || 0,
+        bulletCount: this.bullets?.children.size || 0,
+      })
       // Continue running - don't crash the game
       // Try to recover by cleaning up if possible
       try {
@@ -1916,6 +2021,10 @@ export class MainScene extends Phaser.Scene {
           console.warn('[RECOVERY] Too many bullets, clearing some')
           this.bullets.clear(true, true)
         }
+        // Clear orphaned objects
+        this.aimingTriangles.clear()
+        this.projectedHitIndicators.clear()
+        this.enemyHitIndicators.clear()
       } catch (recoveryError) {
         console.error('[RECOVERY ERROR] Failed to recover:', recoveryError)
       }
@@ -4870,7 +4979,8 @@ export class MainScene extends Phaser.Scene {
       if (body && this.isPlayerGrounded(body) && !this.isCrouching) {
         // No visual offset - use exact ground position to prevent jitter
         // postUpdate() will handle positioning consistently
-        const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+        // Use idle offset for stand pose (~10px lower)
+        const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
           this.player.setY(groundFeetY)
         // Body position will be set in postUpdate() - don't interfere here
       }
@@ -6029,7 +6139,7 @@ export class MainScene extends Phaser.Scene {
       
       if (isGrounded) {
         // If grounded, position at ground level
-        deathY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+        deathY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
         this.player.setY(deathY)
       }
       // If in air, keep current Y position (deathY already set to current position)
@@ -6193,6 +6303,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private splitBall(ball: Phaser.Physics.Arcade.Image): void {
+    try {
     // FIX 1: Clean up red triangles/indicators when ball is destroyed
     this.removeProjectedHitIndicator(ball)
     this.removeAimingTriangleForBall(ball)
@@ -6408,13 +6519,17 @@ export class MainScene extends Phaser.Scene {
     this.removeAimingTriangleForBall(ball)
     
     // Clean up ball properly to remove debug graphics immediately
-    ball.setActive(false)
-    ball.setVisible(false)
-    const body = ball.body as Phaser.Physics.Arcade.Body
-    if (body) {
-      body.enable = false
+    try {
+      ball.setActive(false)
+      ball.setVisible(false)
+      const body = ball.body as Phaser.Physics.Arcade.Body
+      if (body) {
+        body.enable = false
+      }
+      ball.destroy()
+    } catch (err) {
+      console.error('[SPLITBALL ERROR] Error destroying ball:', err)
     }
-    ball.destroy()
 
     // Check if all balls are destroyed - with error handling for mobile crashes
     // Use a delayed check to ensure the ball is fully removed from the group
@@ -6446,7 +6561,13 @@ export class MainScene extends Phaser.Scene {
                     this.isAdvancingLevel = false
                 }
               } catch (err: unknown) {
-                console.error('Error in advanceLevel:', err)
+                console.error('[LEVEL ADVANCE ERROR] Error in advanceLevel:', err)
+                console.error('[LEVEL ADVANCE ERROR] Stack:', (err as Error)?.stack)
+                console.error('[LEVEL ADVANCE ERROR] Game state:', {
+                  level: this.currentLevelIndex + 1,
+                  isGameActive: this.isGameActive,
+                  isBossLevel: this.isBossLevel,
+                })
                 this.isAdvancingLevel = false
               }
             })
@@ -6454,9 +6575,22 @@ export class MainScene extends Phaser.Scene {
         }
       }
     } catch (err: unknown) {
-      console.error('Error checking ball count:', err)
+      console.error('[BALL COUNT ERROR] Error checking ball count:', err)
+      console.error('[BALL COUNT ERROR] Stack:', (err as Error)?.stack)
     }
     })
+    } catch (err) {
+      console.error('[SPLITBALL ERROR] Fatal error in splitBall:', err)
+      console.error('[SPLITBALL ERROR] Stack:', (err as Error)?.stack)
+      console.error('[SPLITBALL ERROR] Ball:', { x: ball.x, y: ball.y, active: ball.active, size: ball.getData('size') })
+      // Try to at least destroy the ball to prevent memory leaks
+      try {
+        ball.setActive(false)
+        ball.destroy()
+      } catch (destroyErr) {
+        console.error('[SPLITBALL ERROR] Failed to destroy ball:', destroyErr)
+      }
+    }
   }
 
   private spawnPowerUp(x: number, y: number, type: 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'): void {
@@ -6482,14 +6616,16 @@ export class MainScene extends Phaser.Scene {
       body.setBounce(0.3, 0.3)
       body.setCollideWorldBounds(true)
       body.setFrictionX(0.5)  // Add friction to slow down sliding
-      // Widen collision box to make powerups easier to collect
-      // Expand collision box by 2x - Phaser centers it automatically
+      // Widen collision box to make powerups easier to collect (3x wider for better margins)
+      // Expand collision box by 3x - Phaser centers it automatically
       const originalWidth = powerUp.width * powerUp.scaleX
       const originalHeight = powerUp.height * powerUp.scaleY
-      const expandedWidth = originalWidth * 2
-      const expandedHeight = originalHeight * 2
+      const expandedWidth = originalWidth * 3
+      const expandedHeight = originalHeight * 3
       // Set larger size - Phaser will center it automatically, keeping visual position the same
       body.setSize(expandedWidth, expandedHeight)
+      // Ensure collision box is centered on sprite
+      body.setOffset(0, 0)  // Reset any offset to ensure centered
       // Give it a small upward velocity to make it pop out
       body.setVelocityY(-100)
       
@@ -6541,6 +6677,14 @@ export class MainScene extends Phaser.Scene {
         body.setVelocityX(0)
         body.setFrictionX(1)
         body.setBounce(0, 0)  // Remove bounce after hitting ground
+        
+        // FIX: Ensure powerup is positioned at ground level, not below
+        // Position sprite so its bottom edge is at groundYPosition
+        const powerUpBottomY = this.groundYPosition
+        const powerUpCenterY = powerUpBottomY - (powerUp.displayHeight / 2)
+        powerUp.setY(powerUpCenterY)
+        // Sync body position to match sprite (body center should be at sprite center)
+        body.y = powerUpCenterY
         
         // Start blinking after 2 seconds from hitting ground
         this.time.delayedCall(2000, () => {
@@ -6708,8 +6852,8 @@ export class MainScene extends Phaser.Scene {
     let fontSize: string
     let scale: number
     if (label === 'Zaytoon Force') {
-      fontSize = '60px'  // Made larger as requested
-      scale = 2.0
+      fontSize = '50px'  // Made a bit smaller as requested
+      scale = 1.8
     } else if (label === 'Dawood\'s Throw') {
       fontSize = '40px'
       scale = 1.5
@@ -6717,8 +6861,8 @@ export class MainScene extends Phaser.Scene {
       fontSize = '60px'
       scale = 2.0
     } else if (label === 'Sabr') {
-      fontSize = '60px'
-      scale = 2.0
+      fontSize = '70px'  // Made larger as requested
+      scale = 2.2
     } else {
       fontSize = '60px'
       scale = 2.0
@@ -7198,8 +7342,9 @@ export class MainScene extends Phaser.Scene {
         // When remaining is 4000-3001ms, show 3
         // When remaining is 3000-2001ms, show 2
         // When remaining is 2000-1001ms, show 1
-        // When remaining is 1000-1ms, show 0
-        const countdown = Math.max(0, Math.ceil((remaining - 1) / 1000))
+        // When remaining is 1000-0ms, show 0
+        // Use floor instead of ceil to ensure it shows 0 at the end
+        const countdown = Math.max(0, Math.floor(remaining / 1000))
         infinityText.setText(countdown.toString())
         infinityText.setVisible(true)
       } else if (nextRockType === 'normal') {
@@ -9485,7 +9630,7 @@ export class MainScene extends Phaser.Scene {
       
       // Reset Bittee
       const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
-      this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+      this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)
       this.player.setVelocity(0, 0)
       if (playerBody) {
         playerBody.setVelocity(0, 0)
@@ -9920,7 +10065,7 @@ export class MainScene extends Phaser.Scene {
     this.updateHud()
 
     // Reset Bittee so his feet sit exactly on the new ground line (top blue line).
-    this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+    this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)
     this.player.setVelocity(0)
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     this.facing = 'right'
@@ -10197,9 +10342,16 @@ export class MainScene extends Phaser.Scene {
       this.player.anims.stop()
       // Return to standing animation and ensure position is correct
       this.player.setTexture(BITTEE_SPRITES.stand.key)
-      this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET)
+      // Preserve current X position to prevent left shift
+      const currentX = this.player.x
+      // Use idle offset for stand pose
+      this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)
+      this.player.setX(currentX)  // Preserve X position
       if (body) {
-        body.updateFromGameObject()
+        // Sync body position without updateFromGameObject (which can cause glitches)
+        body.x = currentX
+        body.y = (this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE) - (body.height / 2)
+        body.setVelocity(0, 0)
       }
       this.player.anims.play('bittee-stand')
       return
@@ -10217,6 +10369,8 @@ export class MainScene extends Phaser.Scene {
 
     // Directly set taunt state and play animation like throwing does
     this.isTaunting = true
+    // Preserve current X position to prevent left shift
+    const currentX = this.player.x
     this.player.setVelocityX(0)
     if (body) {
       body.setVelocity(0, 0)
@@ -10228,10 +10382,14 @@ export class MainScene extends Phaser.Scene {
     }
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     this.setupPlayerCollider(0)
-    // Ensure Bittee is positioned correctly on ground for taunt
-    this.player.setY(this.groundYPosition)  // Feet at ground level (same as other grounded states)
+    // Ensure Bittee is positioned correctly on ground for taunt - preserve X position
+    this.player.setX(currentX)  // Preserve X to prevent left shift
+    this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)  // Use idle offset for taunt
     if (body) {
-      this.syncPlayerBodyPosition()
+      // Sync body position manually to prevent glitches
+      body.x = currentX
+      body.y = (this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE) - (body.height / 2)
+      body.setVelocity(0, 0)
     }
     // Directly play taunt like throwing does - stop animation and set texture
     this.player.setFlipX(false)
@@ -12120,7 +12278,7 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Get Bittee's Y level (ground level) and X position
-    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
     const playerX = this.player.x
     const playerWidth = this.player.displayWidth
     const yRange = 200 // Show triangles for balls within 200 pixels above/below Bittee on Y axis
@@ -12153,7 +12311,7 @@ export class MainScene extends Phaser.Scene {
     // FIX: Remove triangles for balls that are no longer in range, inactive, or destroyed
     // Also check if triangles are stuck (especially around ground level)
     const ballsToRemove: Phaser.Physics.Arcade.Image[] = []
-    const playerYForCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerYForCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
     const playerHeadYForCleanup = playerYForCleanup - this.player.displayHeight  // Approximate head level
     
     this.aimingTriangles.forEach((triangle, ball) => {
@@ -12588,7 +12746,7 @@ export class MainScene extends Phaser.Scene {
 
   private cleanupOrphanedTriangles(): void {
     // FIX: Aggressively clean up orphaned triangles, especially around ground/head level
-    const playerYForOrphanCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerYForOrphanCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
     const playerHeadYForOrphanCleanup = playerYForOrphanCleanup - this.player.displayHeight
     
     this.children.list.forEach((child) => {
@@ -12674,7 +12832,7 @@ export class MainScene extends Phaser.Scene {
     if (ball && ball.scene) {
       const ballX = ball.x
       const ballY = ball.y
-      const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+      const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
       const playerHeadY = playerY - this.player.displayHeight
       
       this.children.list.forEach((child) => {
@@ -12764,7 +12922,7 @@ export class MainScene extends Phaser.Scene {
 
     // Also clean up any orphaned indicators (balls that no longer have bullets targeting them)
     // Also clean up indicators for balls that are below Bittee's head level
-    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET
+    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
     const orphanedBalls: Phaser.Physics.Arcade.Image[] = []
     this.projectedHitIndicators.forEach((indicator, ball) => {
       // Check if indicator itself is destroyed/inactive
