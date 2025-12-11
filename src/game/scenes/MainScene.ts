@@ -1515,16 +1515,13 @@ export class MainScene extends Phaser.Scene {
     const isIdleAnim = (animKey === 'bittee-idle' || animKey === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
     
     if (isIdleAnim) {
-      // #region agent log
-      const beforeY = this.player.y;
-      const targetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE;
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1517',message:'postUpdate: setting idle Y',data:{beforeY,beforeBodyY:body.y,targetY,groundY:this.groundYPosition,offset:PLAYER_FOOT_Y_OFFSET_IDLE},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       // Idle/stand pose: feet ~10px lower
-      this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1520',message:'postUpdate: after setting idle Y',data:{afterY:this.player.y,bodyY:body.y,diff:Math.abs(this.player.y-targetY)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
+      // CRITICAL: Set body position first, then sync sprite to prevent jittering
+      const targetPlayerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+      const targetBodyBottomY = targetPlayerY
+      const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
+      body.y = targetBodyCenterY
+      this.player.y = targetPlayerY
     } else if (isRunningAnim) {
       // Running pose: feet slightly higher
       this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING
@@ -1701,11 +1698,13 @@ export class MainScene extends Phaser.Scene {
       console.error('[UPDATE ERROR] Error in aiming triangles:', err)
     }
     
-    try {
-      this.updateHeartbeat()
-    } catch (err) {
-      console.error('[UPDATE ERROR] Error in updateHeartbeat:', err)
-    }
+    // COMMENTED OUT: Heartbeat sounds during gameplay (too much audio for mobile)
+    // Heartbeat die sound during respawn modal is still played in handlePlayerHit
+    // try {
+    //   this.updateHeartbeat()
+    // } catch (err) {
+    //   console.error('[UPDATE ERROR] Error in updateHeartbeat:', err)
+    // }
     
     // Check ball bounces AFTER physics step but before storing velocities
     // This ensures prevVelY is from the previous frame
@@ -1781,16 +1780,9 @@ export class MainScene extends Phaser.Scene {
         
         const targetBodyBottomY = targetPlayerY
         const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
-        // #region agent log
-        const beforeY = this.player.y;
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1763',message:'postTransitionLockFrames: setting Y',data:{beforeY,targetPlayerY,groundY:this.groundYPosition,postTransitionLockFrames:this.postTransitionLockFrames,animKey,isIdleAnim,isRunningAnim},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         body.y = targetBodyCenterY
         this.player.x = body.x
         this.player.y = targetPlayerY
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1784',message:'postTransitionLockFrames: after setting Y',data:{afterY:this.player.y,bodyY:body.y},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         body.setVelocity(0, 0)
         body.setAcceleration(0, 0)
         // Don't force physics step - it can interfere with ball physics
@@ -6713,17 +6705,11 @@ export class MainScene extends Phaser.Scene {
         const powerUpBottomY = this.groundYPosition
         const bodyBottomY = powerUpBottomY
         const bodyCenterY = bodyBottomY - (body.height / 2)
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:6683',message:'powerup hit ground: positioning',data:{beforeY:powerUp.y,groundY:this.groundYPosition,displayHeight:powerUp.displayHeight,bodyHeight:body.height,bodyCenterY,bodyY:body.y},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         // Set body position first (body bottom at ground level)
         body.y = bodyCenterY
         // Then sync sprite center to body center (sprite origin is 0.5, 0.5)
         const spriteCenterY = bodyCenterY
         powerUp.setY(spriteCenterY)
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:6690',message:'powerup hit ground: after positioning',data:{afterY:powerUp.y,bodyY:body.y,bodyBottom:body.y+(body.height/2),groundY:this.groundYPosition,diffFromGround:Math.abs((body.y+(body.height/2))-this.groundYPosition)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         
         // Start blinking after 2 seconds from hitting ground
         this.time.delayedCall(2000, () => {
@@ -6938,15 +6924,8 @@ export class MainScene extends Phaser.Scene {
     progressBar.setScrollFactor(0)
     progressBar.setDepth(6)
     } else {
-      // Create countdown text instead of progress bar
-      countdownText = this.add.text(worldWidth / 2, barY + barHeight / 2, '3', {
-        fontSize: '48px',
-        fontFamily: 'MontserratBold',
-        color: '#7fb069',
-      })
-      countdownText.setOrigin(0.5, 0.5)
-      countdownText.setScrollFactor(0)
-      countdownText.setDepth(6)
+      // Don't create countdown text - only progress bars should show (user requested)
+      // countdownText remains undefined
     }
     
     // Animate progress bar shrinking from right to left OR countdown (only if duration > 0)
@@ -7280,7 +7259,7 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  private resetPowerUps(preserveRedSlingshotAmmo: boolean = false): void {
+  private resetPowerUps(preserveRedSlingshotAmmo: boolean = false, preserveLeLeSbeed: boolean = false): void {
     // Stop all powerup sounds
     this.timeSoundInstances.forEach(instance => {
       if (instance && instance.isPlaying) {
@@ -7293,14 +7272,16 @@ export class MainScene extends Phaser.Scene {
       shieldSound.stop()
     }
     
-    // Reset auto-fire
-    if (this.autoFireTimer) {
-      this.autoFireTimer.remove(false)
-      this.autoFireTimer = undefined
+    // Reset auto-fire (but preserve if preserveLeLeSbeed is true)
+    if (!preserveLeLeSbeed) {
+      if (this.autoFireTimer) {
+        this.autoFireTimer.remove(false)
+        this.autoFireTimer = undefined
+      }
+      this.isAutoFireActive = false
+      this.autoFireStartTime = 0
+      this.autoFireLastShot = 0
     }
-    this.isAutoFireActive = false
-    this.autoFireStartTime = 0
-    this.autoFireLastShot = 0
     
     // Reset slow motion
     if (this.slowMotionTimer) {
@@ -10194,6 +10175,9 @@ export class MainScene extends Phaser.Scene {
     this.isPausedForDeath = false
     
     this.stopHeartbeat()
+    // Pause background music during respawn modal (user requested)
+    this.pauseBackgroundMusic()
+    
     // Stop all powerup sounds when Bittee dies
     this.timeSoundInstances.forEach(instance => {
       if (instance && instance.isPlaying) {
@@ -10269,9 +10253,9 @@ export class MainScene extends Phaser.Scene {
       
       // End powerups (shield and slow motion) when transitioning to next level
       // Use resetPowerUps to clean up everything including indicators and sounds
-      // Preserve red slingshot ammo when advancing levels
+      // Preserve red slingshot ammo and LeLe Sbeed when advancing levels
       try {
-        this.resetPowerUps(true)  // true = preserve red slingshot ammo
+        this.resetPowerUps(true, true)  // true = preserve red slingshot ammo, true = preserve LeLe Sbeed
       } catch (err: unknown) {
         console.warn('Error resetting powerups:', err)
       }
@@ -10316,22 +10300,14 @@ export class MainScene extends Phaser.Scene {
       try {
         this.applyLevel(nextIndex)
         this.refreshSettingsPanel()
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10282',message:'advanceLevel: before cleanup',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0,level:nextIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         if (this.balls) {
           this.balls.clear(true, true)
         }
-        // FIX: Clear bullets and powerups when advancing levels (they were causing crashes)
+        // FIX: Clear bullets when advancing levels (but preserve powerups and their ammo)
         if (this.bullets) {
           this.bullets.clear(true, true)
         }
-        if (this.powerUps) {
-          this.powerUps.clear(true, true)
-        }
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10286',message:'advanceLevel: after balls.clear',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        // Powerups persist across levels (user requested)
         
         // FIX: Clear all triangles when advancing to new level
         this.clearAllTriangles()
@@ -10358,13 +10334,7 @@ export class MainScene extends Phaser.Scene {
           console.error('[CLEANUP] Error during level transition cleanup:', err)
         }
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10311',message:'advanceLevel: before spawnLevelWave',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         this.spawnLevelWave(this.currentLevelIndex)
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10313',message:'advanceLevel: after spawnLevelWave',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         // Unlock the next level
         this.unlockLevel(nextIndex)
