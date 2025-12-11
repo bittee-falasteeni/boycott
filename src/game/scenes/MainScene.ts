@@ -6072,7 +6072,8 @@ export class MainScene extends Phaser.Scene {
 
     this.lives -= 1
     this.updateHud()
-    this.updateHeartbeat()
+    // COMMENTED OUT: Heartbeat sounds during gameplay (too much audio for mobile)
+    // this.updateHeartbeat()
 
     // Create blinking tween for invulnerability - store reference so it can be resumed if paused
     const blinkTween = this.tweens.add({
@@ -6147,11 +6148,10 @@ export class MainScene extends Phaser.Scene {
       }
       
       // Lower music volume by half during death transition (2 seconds before respawn modal)
-      // Phaser doesn't support changing volume of playing sounds directly
-      // We'll pause after 2 seconds - music will resume where it left off when respawn button is pressed
-      // Note: Volume lowering would require stopping/restarting which causes music to restart
+      // Phaser doesn't support changing volume of playing sounds, so we pause after 2 seconds
+      // Pause preserves the seek position, so resume() will continue from where it paused
       this.time.delayedCall(2000, () => {
-        // Pause music after 2 seconds (it will resume where it left off)
+        // Pause music after 2 seconds (preserves seek position for resume)
         if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
           this.backgroundMusic1.pause()
         }
@@ -6309,9 +6309,15 @@ export class MainScene extends Phaser.Scene {
       if (body) {
         body.x = currentX
         if (isOnGround) {
+          // On ground: position at ground level
           body.y = this.groundYPosition - (body.height / 2)
+          this.player.y = this.groundYPosition
         } else {
-          body.y = currentY - (body.height / 2)  // Preserve air position
+          // In air: preserve exact air position (don't force to ground)
+          body.y = currentY - (body.height / 2)
+          this.player.y = currentY
+          // Keep gravity enabled so player can continue falling naturally
+          body.setAllowGravity(true)
         }
       }
       
@@ -9857,30 +9863,23 @@ export class MainScene extends Phaser.Scene {
     // Start background music when game starts (but not during boss level)
     if (!this.isBossLevel) {
       if (respawnOnCurrentLevel) {
-        // Respawn: Resume music if paused, or start if not playing
-        const track1Playing = this.backgroundMusic1 && this.backgroundMusic1.isPlaying
-        const track2Playing = this.backgroundMusic2 && this.backgroundMusic2.isPlaying
-        
-        if (track2Playing) {
-          this.currentMusicTrack = 2
-          if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
-            this.backgroundMusic2.resume()
-          }
-        } else if (track1Playing) {
+        // Respawn: Resume music if paused (prioritize paused tracks to preserve seek position)
+        // Paused tracks preserve seek position, so resume() continues from where it paused
+        if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
           this.currentMusicTrack = 1
-          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
-            this.backgroundMusic1.resume()
-          }
+          this.backgroundMusic1.resume()
+        } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+          this.currentMusicTrack = 2
+          this.backgroundMusic2.resume()
+        } else if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+          // Already playing, no action needed
+          this.currentMusicTrack = 1
+        } else if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+          // Already playing, no action needed
+          this.currentMusicTrack = 2
         } else {
-          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
-            this.currentMusicTrack = 1
-            this.backgroundMusic1.resume()
-          } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
-            this.currentMusicTrack = 2
-            this.backgroundMusic2.resume()
-          } else {
-            this.startBackgroundMusic(false)
-          }
+          // No music playing or paused, start fresh
+          this.startBackgroundMusic(false)
         }
       } else {
         // New game start: Start background music
@@ -10367,25 +10366,28 @@ export class MainScene extends Phaser.Scene {
       // Return to standing animation and ensure position is correct
       this.player.setTexture(BITTEE_SPRITES.stand.key)
       
+      // Preserve exact position when exiting taunt
+      const currentY = this.player.y
       if (onGround) {
-        // On ground: stay at ground level
+        // On ground: stay at same position
         body.setAllowGravity(true)
         this.tauntGravityDisabled = false
         this.player.setX(currentX)
-        this.player.setY(this.groundYPosition)
+        this.player.setY(currentY)  // Stay at same Y position
         if (body) {
           body.x = currentX
-          body.y = this.groundYPosition - (body.height / 2)
+          body.y = currentY - (body.height / 2)  // Preserve position
           body.setVelocity(0, 0)
         }
       } else {
-        // In air: allow falling, preserve X
+        // In air: allow falling, preserve X and current Y (will fall naturally)
         body.setAllowGravity(true)
         this.tauntGravityDisabled = false
         this.player.setX(currentX)
-        // Y will change naturally as player falls
+        this.player.setY(currentY)  // Preserve current Y position
         if (body) {
           body.x = currentX
+          body.y = currentY - (body.height / 2)
         }
       }
       this.player.anims.play('bittee-stand')
@@ -10417,17 +10419,19 @@ export class MainScene extends Phaser.Scene {
       }
       this.player.setScale(this.basePlayerScale, this.basePlayerScale)
       this.setupPlayerCollider(0)
-      // Preserve position
+      // Preserve exact position when entering taunt
+      const currentY = this.player.y
       this.player.setX(currentX)
-      this.player.setY(this.groundYPosition)  // On ground, use ground position
+      this.player.setY(currentY)  // Stay at same Y position
       if (body) {
         body.x = currentX
-        body.y = this.groundYPosition - (body.height / 2)
+        body.y = currentY - (body.height / 2)  // Preserve position
         body.setVelocity(0, 0)
       }
     } else {
       // In air: allow falling, just preserve X position
       this.player.setVelocityX(0)
+      const currentY = this.player.y
       if (body) {
         body.setVelocityX(0)
         // Keep gravity enabled so player can fall
@@ -10436,10 +10440,12 @@ export class MainScene extends Phaser.Scene {
       }
       this.player.setScale(this.basePlayerScale, this.basePlayerScale)
       this.setupPlayerCollider(0)
-      // Preserve X, allow Y to change (falling)
+      // Preserve X and current Y position (will fall naturally)
       this.player.setX(currentX)
+      this.player.setY(currentY)
       if (body) {
         body.x = currentX
+        body.y = currentY - (body.height / 2)
       }
     }
     // Directly play taunt like throwing does - stop animation and set texture
@@ -13125,22 +13131,38 @@ export class MainScene extends Phaser.Scene {
         this.backgroundMusic2.resume()
       } else {
         // Neither track is paused - check currentMusicTrack and resume/start that one
+        // CRITICAL: Only call play() if not paused (paused tracks should use resume())
         if (this.currentMusicTrack === 1 && this.backgroundMusic1) {
-          if (!this.backgroundMusic1.isPlaying) {
-            this.backgroundMusic1.play()
+          if (this.backgroundMusic1.isPaused) {
+            // If paused, resume (preserves seek position)
+            this.backgroundMusic1.resume()
+          } else if (!this.backgroundMusic1.isPlaying) {
+            // Only play if not playing and not paused
+            const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+            if (volumeMultiplier > 0) {
+              this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+            }
           }
         } else if (this.currentMusicTrack === 2 && this.backgroundMusic2) {
-          if (!this.backgroundMusic2.isPlaying) {
-            this.backgroundMusic2.play()
+          if (this.backgroundMusic2.isPaused) {
+            // If paused, resume (preserves seek position)
+            this.backgroundMusic2.resume()
+          } else if (!this.backgroundMusic2.isPlaying) {
+            // Only play if not playing and not paused
+            const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+            if (volumeMultiplier > 0) {
+              this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
+            }
           }
         }
       }
     }
     
-    // Resume heartbeat when resuming
-    if (this.isGameActive) {
-      this.updateHeartbeat()
-    }
+    // COMMENTED OUT: Heartbeat sounds during gameplay (too much audio for mobile)
+    // Heartbeat die sound during respawn modal is still played in handlePlayerHit
+    // if (this.isGameActive) {
+    //   this.updateHeartbeat()
+    // }
   }
 
   private playBallBounceSound(): void {
