@@ -110,8 +110,7 @@ const ROCK_TARGET_SIZE = 72
 // Player origin is at bottom (0.5, 1), so Y position = where feet are.
 // Negative values shift sprite UP into the collision box
 // Positive values shift sprite DOWN (lower on screen)
-const PLAYER_FOOT_Y_OFFSET_IDLE = 13  // Shift Bittee ~10px lower when idle/standing (was 3)
-const PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING = -2  // Shift Bittee slightly higher when running
+// Offset removed to prevent jittering - using groundYPosition directly
 
 // Ground position offset - locked to prevent changes from affecting Bittee's position
 // Negative moves ground UP (higher on screen), positive moves DOWN
@@ -1508,27 +1507,13 @@ export class MainScene extends Phaser.Scene {
 
     // Sync sprite to body - ensure feet are at ground level for all states
     // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
-    // Use different Y offsets for idle vs running poses
+    // Offset removed to prevent jittering - use groundYPosition directly
     this.player.x = body.x
-    const animKey = this.player.anims.currentAnim?.key
-    const isRunningAnim = animKey === 'bittee-run-left' || animKey === 'bittee-run-right'
-    const isIdleAnim = (animKey === 'bittee-idle' || animKey === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
-    
-    if (isIdleAnim) {
-      // Idle/stand pose: feet ~10px lower
-      // CRITICAL: Set body position first, then sync sprite to prevent jittering
-      const targetPlayerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
-      const targetBodyBottomY = targetPlayerY
-      const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
-      body.y = targetBodyCenterY
-      this.player.y = targetPlayerY
-    } else if (isRunningAnim) {
-      // Running pose: feet slightly higher
-      this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING
-    } else {
-      // Other states (taunting, etc): use default offset
-      this.player.y = this.groundYPosition + 3  // Default offset
-    }
+    // CRITICAL: Set body position first, then sync sprite to prevent jittering
+    const targetBodyBottomY = this.groundYPosition
+    const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
+    body.y = targetBodyCenterY
+    this.player.y = this.groundYPosition
   }
 
   update(time: number): void {
@@ -1764,20 +1749,8 @@ export class MainScene extends Phaser.Scene {
     if (this.postTransitionLockFrames > 0) {
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body) {
-        // Position body at ground level, but use correct offset based on animation state
-        const animKey = this.player.anims.currentAnim?.key
-        const isRunningAnim = animKey === 'bittee-run-left' || animKey === 'bittee-run-right'
-        const isIdleAnim = (animKey === 'bittee-idle' || animKey === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
-        
-        let targetPlayerY: number
-        if (isIdleAnim) {
-          targetPlayerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
-        } else if (isRunningAnim) {
-          targetPlayerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING
-        } else {
-          targetPlayerY = this.groundYPosition + 3  // Default offset
-        }
-        
+        // Position body at ground level (offset removed to prevent jittering)
+        const targetPlayerY = this.groundYPosition
         const targetBodyBottomY = targetPlayerY
         const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
         body.y = targetBodyCenterY
@@ -1795,7 +1768,7 @@ export class MainScene extends Phaser.Scene {
     // Only correct drift if body is NOT touching ground (if touching, it's stable)
     if (this.postTransitionFrameCount > 0) {
       // Use idle offset for expected position
-      const expectedY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+      const expectedY = this.groundYPosition  // Offset removed to prevent jittering
       const actualY = this.player.y
       const diff = Math.abs(actualY - expectedY)
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
@@ -1982,7 +1955,7 @@ export class MainScene extends Phaser.Scene {
     // This prevents any other systems from moving the player after we lock position
     // Reuse body variable declared at start of update()
     const finalBody = this.player.body as Phaser.Physics.Arcade.Body | null
-    const feetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+    const feetY = this.groundYPosition  // Offset removed to prevent jittering
     
     // Lock position during crouch exit transition
     if (this.isTransitioning && this.justExitedCrouch && !this.isJumping) {
@@ -2021,15 +1994,22 @@ export class MainScene extends Phaser.Scene {
     }
     } catch (error) {
       // Prevent crashes on mobile by catching errors in update loop
-      console.error('[UPDATE ERROR] Fatal error in update loop:', error)
-      console.error('[UPDATE ERROR] Stack trace:', (error as Error)?.stack)
-      console.error('[UPDATE ERROR] Game state:', {
+      // Use console.error with detailed info (no fetch to avoid CORS errors)
+      const errorInfo = {
+        message: (error as Error)?.message || String(error),
+        stack: (error as Error)?.stack,
         level: this.currentLevelIndex + 1,
         isGameActive: this.isGameActive,
         isPaused: this.isPausedForSettings,
+        isPausedForDeath: this.isPausedForDeath,
         ballCount: this.balls?.children.size || 0,
         bulletCount: this.bullets?.children.size || 0,
-      })
+        powerUpCount: this.powerUps?.children.size || 0,
+        triangleCount: this.aimingTriangles.size + this.projectedHitIndicators.size,
+        timestamp: Date.now(),
+      }
+      console.error('[UPDATE ERROR] Fatal error in update loop:', errorInfo)
+      console.error('[UPDATE ERROR] Full error:', error)
       // Continue running - don't crash the game
       // Try to recover by cleaning up if possible
       try {
@@ -5000,7 +4980,7 @@ export class MainScene extends Phaser.Scene {
         // No visual offset - use exact ground position to prevent jitter
         // postUpdate() will handle positioning consistently
         // Use idle offset for stand pose (~10px lower)
-        const groundFeetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+        const groundFeetY = this.groundYPosition  // Offset removed to prevent jittering
           this.player.setY(groundFeetY)
         // Body position will be set in postUpdate() - don't interfere here
       }
@@ -6160,9 +6140,37 @@ export class MainScene extends Phaser.Scene {
       let deathY = this.player.y
       
       if (isGrounded) {
-        // If grounded, position at ground level
-        deathY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+        // If grounded, position at ground level (offset removed to prevent jittering)
+        deathY = this.groundYPosition
         this.player.setY(deathY)
+      }
+      
+      // Lower music volume by half during death transition (2 seconds before respawn modal)
+      const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+      const reducedVolume = volumeMultiplier * 0.5
+      if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+        // Stop and restart with reduced volume
+        const wasPlaying1 = this.backgroundMusic1.isPlaying
+        this.backgroundMusic1.stop()
+        if (wasPlaying1 && reducedVolume > 0) {
+          this.backgroundMusic1.play({ volume: 0.25 * reducedVolume })
+        }
+      }
+      if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+        // Stop and restart with reduced volume
+        const wasPlaying2 = this.backgroundMusic2.isPlaying
+        this.backgroundMusic2.stop()
+        if (wasPlaying2 && reducedVolume > 0) {
+          this.backgroundMusic2.play({ volume: 0.25 * reducedVolume })
+        }
+      }
+      if (this.bossMusic && this.bossMusic.isPlaying) {
+        // Stop and restart with reduced volume (boss music already at 0.25, so half is 0.125)
+        const wasPlayingBoss = this.bossMusic.isPlaying
+        this.bossMusic.stop()
+        if (wasPlayingBoss && reducedVolume > 0) {
+          this.bossMusic.play({ volume: 0.25 * reducedVolume })
+        }
       }
       // If in air, keep current Y position (deathY already set to current position)
       
@@ -6638,16 +6646,7 @@ export class MainScene extends Phaser.Scene {
       body.setBounce(0.3, 0.3)
       body.setCollideWorldBounds(true)
       body.setFrictionX(0.5)  // Add friction to slow down sliding
-      // Widen collision box to make powerups easier to collect (3x wider for better margins)
-      // Expand collision box by 3x - Phaser centers it automatically
-      const originalWidth = powerUp.width * powerUp.scaleX
-      const originalHeight = powerUp.height * powerUp.scaleY
-      const expandedWidth = originalWidth * 3
-      const expandedHeight = originalHeight * 3
-      // Set larger size - Phaser will center it automatically, keeping visual position the same
-      body.setSize(expandedWidth, expandedHeight)
-      // Ensure collision box is centered on sprite
-      body.setOffset(0, 0)  // Reset any offset to ensure centered
+      // Revert collision box to original size (undo widening that caused sinking below ground)
       // Give it a small upward velocity to make it pop out
       body.setVelocityY(-100)
       
@@ -6701,15 +6700,12 @@ export class MainScene extends Phaser.Scene {
         body.setBounce(0, 0)  // Remove bounce after hitting ground
         
         // FIX: Ensure powerup is positioned at ground level, not below
-        // Position body bottom at groundYPosition, then sync sprite to body
+        // Revert to simple positioning - sprite bottom at groundYPosition
         const powerUpBottomY = this.groundYPosition
-        const bodyBottomY = powerUpBottomY
-        const bodyCenterY = bodyBottomY - (body.height / 2)
-        // Set body position first (body bottom at ground level)
-        body.y = bodyCenterY
-        // Then sync sprite center to body center (sprite origin is 0.5, 0.5)
-        const spriteCenterY = bodyCenterY
-        powerUp.setY(spriteCenterY)
+        const powerUpCenterY = powerUpBottomY - (powerUp.displayHeight / 2)
+        powerUp.setY(powerUpCenterY)
+        // Sync body position to match sprite
+        body.y = powerUpCenterY
         
         // Start blinking after 2 seconds from hitting ground
         this.time.delayedCall(2000, () => {
@@ -6965,34 +6961,33 @@ export class MainScene extends Phaser.Scene {
       },
     })
       } else {
-        // Countdown animation
-        tween = this.tweens.add({
-          targets: progressData,
-          countdown: 0,
-          duration: duration,
-          ease: 'Linear',
-          onUpdate: () => {
-            if (countdownText && countdownText.active) {
-              const currentCountdown = Math.ceil(progressData.countdown)
-              countdownText.setText(currentCountdown.toString())
-            }
-            // Fade text as time runs out
-            if (text && text.active) {
-              const progress = Math.max(0, Math.min(progressData.countdown / (duration / 1000), 1))
-              text.setAlpha(progress)
-            }
-          },
-          onComplete: () => {
-            const indicator = this.powerUpIndicators.get(powerUpKey)
-            if (indicator) {
-              indicator.text.destroy()
-              if (indicator.progressBar) indicator.progressBar.destroy()
-              if (indicator.progressBarBg) indicator.progressBarBg.destroy()
-              if (indicator.countdownText) indicator.countdownText.destroy()
-              this.powerUpIndicators.delete(powerUpKey)
-            }
-          },
-        })
+        // Countdown text removed - only progress bars should show (user requested)
+        // No animation needed when showProgressBar is false
+        // Just fade out text when duration expires
+        if (duration > 0) {
+          const fadeData = { alpha: 1 }
+          tween = this.tweens.add({
+            targets: fadeData,
+            alpha: 0,
+            duration: duration,
+            ease: 'Linear',
+            onUpdate: () => {
+              if (text && text.active) {
+                text.setAlpha(fadeData.alpha)
+              }
+            },
+            onComplete: () => {
+              const indicator = this.powerUpIndicators.get(powerUpKey)
+              if (indicator) {
+                indicator.text.destroy()
+                if (indicator.progressBar) indicator.progressBar.destroy()
+                if (indicator.progressBarBg) indicator.progressBarBg.destroy()
+                if (indicator.countdownText) indicator.countdownText.destroy()
+                this.powerUpIndicators.delete(powerUpKey)
+              }
+            },
+          })
+        }
       }
     } else {
       // Duration 0 means it stays until manually removed (like Super Rock ammo)
@@ -9658,7 +9653,7 @@ export class MainScene extends Phaser.Scene {
       
       // Reset Bittee
       const playerBody = this.player.body as Phaser.Physics.Arcade.Body | null
-      this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)
+      this.player.setPosition(this.scale.width / 2, this.groundYPosition)  // Offset removed to prevent jittering
       this.player.setVelocity(0, 0)
       if (playerBody) {
         playerBody.setVelocity(0, 0)
@@ -10093,7 +10088,7 @@ export class MainScene extends Phaser.Scene {
     this.updateHud()
 
     // Reset Bittee so his feet sit exactly on the new ground line (top blue line).
-    this.player.setPosition(this.scale.width / 2, this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)
+      this.player.setPosition(this.scale.width / 2, this.groundYPosition)  // Offset removed to prevent jittering
     this.player.setVelocity(0)
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     this.facing = 'right'
@@ -10175,6 +10170,8 @@ export class MainScene extends Phaser.Scene {
     this.isPausedForDeath = false
     
     this.stopHeartbeat()
+    // Restore music volume to normal before pausing (it was lowered during death transition)
+    // Music will be paused anyway, so just ensure it's stopped properly
     // Pause background music during respawn modal (user requested)
     this.pauseBackgroundMusic()
     
@@ -10381,13 +10378,13 @@ export class MainScene extends Phaser.Scene {
       this.player.setTexture(BITTEE_SPRITES.stand.key)
       // Preserve current X position to prevent left shift
       const currentX = this.player.x
-      // Use idle offset for stand pose
-      this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)
+      // Offset removed to prevent jittering
+      this.player.setY(this.groundYPosition)
       this.player.setX(currentX)  // Preserve X position
       if (body) {
         // Sync body position without updateFromGameObject (which can cause glitches)
         body.x = currentX
-        body.y = (this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE) - (body.height / 2)
+        body.y = this.groundYPosition - (body.height / 2)  // Offset removed to prevent jittering
         body.setVelocity(0, 0)
       }
       this.player.anims.play('bittee-stand')
@@ -10421,11 +10418,11 @@ export class MainScene extends Phaser.Scene {
     this.setupPlayerCollider(0)
     // Ensure Bittee is positioned correctly on ground for taunt - preserve X position
     this.player.setX(currentX)  // Preserve X to prevent left shift
-    this.player.setY(this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE)  // Use idle offset for taunt
+    this.player.setY(this.groundYPosition)  // Offset removed to prevent jittering
     if (body) {
       // Sync body position manually to prevent glitches
       body.x = currentX
-      body.y = (this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE) - (body.height / 2)
+      body.y = this.groundYPosition - (body.height / 2)  // Offset removed to prevent jittering
       body.setVelocity(0, 0)
     }
     // Directly play taunt like throwing does - stop animation and set texture
@@ -12315,7 +12312,7 @@ export class MainScene extends Phaser.Scene {
     }
     
     // Get Bittee's Y level (ground level) and X position
-    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+    const playerY = this.groundYPosition + 0  // Offset removed to prevent jittering
     const playerX = this.player.x
     const playerWidth = this.player.displayWidth
     const yRange = 200 // Show triangles for balls within 200 pixels above/below Bittee on Y axis
@@ -12348,7 +12345,7 @@ export class MainScene extends Phaser.Scene {
     // FIX: Remove triangles for balls that are no longer in range, inactive, or destroyed
     // Also check if triangles are stuck (especially around ground level)
     const ballsToRemove: Phaser.Physics.Arcade.Image[] = []
-    const playerYForCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+    const playerYForCleanup = this.groundYPosition + 0  // Offset removed to prevent jittering
     const playerHeadYForCleanup = playerYForCleanup - this.player.displayHeight  // Approximate head level
     
     this.aimingTriangles.forEach((triangle, ball) => {
@@ -12783,7 +12780,7 @@ export class MainScene extends Phaser.Scene {
 
   private cleanupOrphanedTriangles(): void {
     // FIX: Aggressively clean up orphaned triangles, especially around ground/head level
-    const playerYForOrphanCleanup = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+    const playerYForOrphanCleanup = this.groundYPosition + 0  // Offset removed to prevent jittering
     const playerHeadYForOrphanCleanup = playerYForOrphanCleanup - this.player.displayHeight
     
     this.children.list.forEach((child) => {
@@ -12869,7 +12866,7 @@ export class MainScene extends Phaser.Scene {
     if (ball && ball.scene) {
       const ballX = ball.x
       const ballY = ball.y
-      const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+      const playerY = this.groundYPosition + 0  // Offset removed to prevent jittering
       const playerHeadY = playerY - this.player.displayHeight
       
       this.children.list.forEach((child) => {
@@ -12959,7 +12956,7 @@ export class MainScene extends Phaser.Scene {
 
     // Also clean up any orphaned indicators (balls that no longer have bullets targeting them)
     // Also clean up indicators for balls that are below Bittee's head level
-    const playerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+    const playerY = this.groundYPosition + 0  // Offset removed to prevent jittering
     const orphanedBalls: Phaser.Physics.Arcade.Image[] = []
     this.projectedHitIndicators.forEach((indicator, ball) => {
       // Check if indicator itself is destroyed/inactive
