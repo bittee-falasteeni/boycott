@@ -10529,32 +10529,58 @@ export class MainScene extends Phaser.Scene {
 
     // If already taunting, toggle it off
     if (this.isTaunting) {
-      // FIX: Don't preserve Y position here - different textures have different displayHeights
-      // which causes visual position shifts. Let cancelTaunt() handle position by setting to groundYPosition.
-      // Only preserve X position to maintain horizontal position.
+      // RESTORED: Simple inline approach from working version (e9cd8ff)
+      // This was working before - handle everything inline instead of calling cancelTaunt()
+      this.isTaunting = false
       const currentX = this.player.x
       const onGround = this.isPlayerGrounded(body)
       
-      this.player.anims.stop()
-      const currentXBefore = this.player.x
-      const currentYBefore = this.player.y
-      
-      // FIX: Don't set texture or setup collider here - cancelTaunt() will handle it
-      // This prevents redundant position calculations that cause shifts
-      
-      // #region agent log
-      console.log('[DEBUG] exiting taunt', {currentXBefore, currentYBefore, onGround, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
-      // #endregion
-      
-      // Call cancelTaunt to properly clean up taunt state and transition to idle
-      // cancelTaunt() will set position to groundYPosition if on ground, or preserve Y if in air
-      this.cancelTaunt(true)
-      
-      // Preserve X position after cancelTaunt (in case it was modified)
       if (body) {
-        this.player.setX(currentX)
+        body.setAllowGravity(true)
+        this.tauntGravityDisabled = false
+        body.setVelocity(0, 0)
+        body.setAcceleration(0, 0)
+      }
+      
+      this.player.anims.stop()
+      // Set texture to stand first
+      this.player.setTexture(BITTEE_SPRITES.stand.key)
+      
+      if (onGround) {
+        // On ground: set feet to ground level
+        this.player.setY(this.groundYPosition)
+        if (body) {
+          // Sync body to sprite position - use manual calculation instead of updateFromGameObject
+          // (updateFromGameObject can cause issues with offsets)
+          body.x = this.player.x
+          body.y = this.groundYPosition - (body.height / 2)
+        }
+      } else {
+        // In air: preserve current Y position
+        const currentY = this.player.y
+        this.player.setY(currentY)
+        if (body) {
+          body.x = this.player.x
+          body.y = currentY - (body.height / 2)
+        }
+      }
+      
+      // Preserve X position
+      this.player.setX(currentX)
+      if (body) {
         body.x = currentX
       }
+      
+      // Setup collider after position is set
+      this.setupPlayerCollider(0)
+      
+      // Transition to idle pose
+      this.setIdlePose(true)
+      
+      // #region agent log
+      console.log('[DEBUG] exiting taunt', {currentX, onGround, playerY: this.player.y, bodyY: body?.y, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+      // #endregion
+      
       return
     }
 
@@ -10565,60 +10591,42 @@ export class MainScene extends Phaser.Scene {
 
     const onGround = this.isPlayerGrounded(body)
     
+    // RESTORED: Simple approach from working version (e9cd8ff)
+    // Only allow taunt when on ground (old version had this check)
+    if (!onGround) {
+      return
+    }
+    
     // Directly set taunt state and play animation like throwing does
     this.isTaunting = true
-    // Preserve current position to prevent shifting
     const currentX = this.player.x
     
-    if (onGround) {
-      // On ground: set feet to ground level (don't preserve Y - different textures have different displayHeights)
-      this.player.setVelocityX(0)
-      if (body) {
-        body.setVelocity(0, 0)
-        body.setAcceleration(0, 0)
-        if (!this.tauntGravityDisabled) {
-          body.setAllowGravity(false)
-          this.tauntGravityDisabled = true
-        }
-      }
-      // FIX: Don't preserve Y position - set to groundYPosition to ensure feet stay at ground level
-      // Different textures (stand vs taunt) have different displayHeights, so preserving Y causes visual shifts
-      const currentXBefore = this.player.x
-      const currentYBefore = this.player.y
-      this.player.setScale(this.basePlayerScale, this.basePlayerScale)
-      this.setupPlayerCollider(0)
-      // Set feet to ground level to prevent position shifts from different displayHeights
-      this.player.setX(currentX)
-      this.player.setY(this.groundYPosition)  // Feet at ground level
-      if (body) {
-        body.x = currentX
-        // Recalculate body center based on ground position and current body.height
-        body.y = this.groundYPosition - (body.height / 2)
-        body.setVelocity(0, 0)
-      }
-      // #region agent log
-      console.log('[DEBUG] entering taunt', {currentXBefore, currentXAfter: this.player.x, currentYBefore, playerYAfter: this.player.y, groundY: this.groundYPosition, bodyX: body.x, bodyY: body.y, bodyHeight: body.height, displayHeight: this.player.displayHeight})
-      // #endregion
-    } else {
-      // In air: allow falling, just preserve X position
-      this.player.setVelocityX(0)
-      const currentY = this.player.y
-      if (body) {
-        body.setVelocityX(0)
-        // Keep gravity enabled so player can fall
-        body.setAllowGravity(true)
-        this.tauntGravityDisabled = false
-      }
-      this.player.setScale(this.basePlayerScale, this.basePlayerScale)
-      this.setupPlayerCollider(0)
-      // Preserve X and current Y position (will fall naturally)
-      this.player.setX(currentX)
-      this.player.setY(currentY)
-      if (body) {
-        body.x = currentX
-        body.y = currentY - (body.height / 2)
+    this.player.setVelocityX(0)
+    if (body) {
+      body.setVelocity(0, 0)
+      body.setAcceleration(0, 0)
+      if (!this.tauntGravityDisabled) {
+        body.setAllowGravity(false)
+        this.tauntGravityDisabled = true
       }
     }
+    
+    this.player.setScale(this.basePlayerScale, this.basePlayerScale)
+    this.setupPlayerCollider(0)
+    // Ensure Bittee is positioned correctly on ground for taunt
+    this.player.setY(this.groundYPosition)  // Feet at ground level
+    this.player.setX(currentX)  // Preserve X position
+    if (body) {
+      // Sync body to sprite - body center should be at player.y - (body.height / 2)
+      // because player.y is the bottom of the sprite (feet position)
+      body.x = this.player.x
+      body.y = this.groundYPosition - (body.height / 2)
+      body.setVelocity(0, 0)
+    }
+    
+    // #region agent log
+    console.log('[DEBUG] entering taunt', {currentX, playerY: this.player.y, bodyY: body?.y, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+    // #endregion
     // Directly play taunt like throwing does - stop animation and set texture
     this.player.setFlipX(false)
     // Toggle between taunt and taunt2 each time taunt is triggered
