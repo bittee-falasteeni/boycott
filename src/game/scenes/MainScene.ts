@@ -1445,6 +1445,9 @@ export class MainScene extends Phaser.Scene {
    * Called via physics world 'worldstep' event
    */
   postUpdate(): void {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1447',message:'[DEBUG] postUpdate ENTRY',data:{isJumping:this.isJumping,isTaunting:this.isTaunting,isCrouching:this.isCrouching,currentAnim:this.player.anims.currentAnim ? this.player.anims.currentAnim.key : 'none',playerY:this.player.y,bodyY:(this.player.body as Phaser.Physics.Arcade.Body).y,bodyHeight:(this.player.body as Phaser.Physics.Arcade.Body).height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     // Simple sprite-body sync with ground locking
     if (!this.isGameActive || this.isPausedForSettings || this.isPausedForDeath) {
       return
@@ -1462,9 +1465,23 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
+    // FIX: If taunting, don't override position - taunt code handles its own positioning
+    if (this.isTaunting) {
+      // Just sync X, preserve Y position set by taunt code
+      this.player.x = body.x
+      return
+    }
+
     // Grounded: lock body to ground level, then sync sprite
+    // CRITICAL: Always ensure body bottom is at groundYPosition, regardless of body.height
+    // This prevents feet position from changing when body.height changes between animations
     const bodyBottomY = this.groundYPosition
+    // Calculate body center based on current body.height (which may have changed from setupPlayerCollider)
     const bodyCenterY = bodyBottomY - (body.height / 2)
+    
+    // #region agent log
+    console.log('[DEBUG] bodyCenterY calc', {bodyBottomY, bodyHeight: body.height, bodyCenterY, groundY: this.groundYPosition, displayHeight: this.player.displayHeight, currentAnim: this.player.anims.currentAnim?.key, playerY: this.player.y})
+    // #endregion
     
     if (this.isCrouching) {
       // During crouch: body is disabled, just position it
@@ -1484,36 +1501,53 @@ export class MainScene extends Phaser.Scene {
     const isRunning = currentAnim === 'bittee-run-left' || currentAnim === 'bittee-run-right'
     const isIdle = (currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
     
-    // Always lock Y position to ground
-    body.y = bodyCenterY
+    // #region agent log
+    console.log('[DEBUG] postUpdate state', {currentAnim, isRunning, isIdle, bodyY: body.y, bodyHeight: body.height, bodyVelY: body.velocity.y, bodyAccelY: body.acceleration.y, playerY: this.player.y, groundY: this.groundYPosition, displayHeight: this.player.displayHeight})
+    // #endregion
+    
+    // FIX: Set body position ONCE to prevent wiggle from multiple assignments
+    // Always lock Y position to ground - use single calculation
     body.setVelocityY(0)
     
     // Only lock X and set immovable when truly idle (not running/throwing/taunting/crouching)
     if (isIdle && !isRunning) {
       body.setVelocityX(0)  // Lock X to prevent drift when idle
-      body.setVelocityY(0)  // Lock Y velocity
       body.setImmovable(true)  // Prevent physics from moving body (stops bobbing)
-      // Lock body position to prevent any drift or jitter - use exact values, no rounding needed
-      body.x = this.player.x
-      body.y = bodyCenterY  // Exact ground position
+      body.setAcceleration(0, 0)  // FIX: Also clear acceleration to prevent any movement
+      body.x = this.player.x  // Lock X position
     } else {
       body.setImmovable(false)  // Allow movement when running/throwing/taunting
-      // When running, ensure body bottom is at ground level (same as idle)
-      body.y = bodyCenterY
-      body.setVelocityY(0)  // Lock Y velocity when running on ground
     }
     
     body.setAllowGravity(true)  // Keep enabled for ground detection
 
     // Sync sprite to body - ensure feet are at ground level for all states
     // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
-    // Offset removed to prevent jittering - use groundYPosition directly
+    // CRITICAL: Always position sprite feet at ground level first, then sync body center to match
+    // This ensures feet are always at the same position regardless of animation height
+    // #region agent log
+    const beforeSyncPlayerY = this.player.y
+    const beforeSyncBodyY = body.y
+    // #endregion
     this.player.x = body.x
-    // CRITICAL: Set body position first, then sync sprite to prevent jittering
-    const targetBodyBottomY = this.groundYPosition
-    const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
-    body.y = targetBodyCenterY
-    this.player.y = this.groundYPosition
+    this.player.y = this.groundYPosition  // Feet always at ground level
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1526',message:'[DEBUG] postUpdate SET player.y to groundYPosition',data:{beforePlayerY:beforeSyncPlayerY,afterPlayerY:this.player.y,groundY:this.groundYPosition,beforeBodyY:beforeSyncBodyY,currentAnim:this.player.anims.currentAnim?.key,displayHeight:this.player.displayHeight,bodyHeight:body.height},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    
+    // Recalculate body center based on current body.height to keep body bottom at ground
+    // This accounts for different body heights from different animation displayHeights
+    // FIX: Set body.y ONCE at the end to prevent wiggle from multiple assignments
+    // FIX: Use exact calculation to prevent floating point precision issues
+    const actualBodyCenterY = this.groundYPosition - (body.height / 2)
+    // FIX: Only update if significantly different to prevent micro-movements from floating point precision
+    if (Math.abs(body.y - actualBodyCenterY) > 0.01) {
+      body.y = actualBodyCenterY  // Sync body to match sprite feet position
+    }
+    
+    // #region agent log
+    console.log('[DEBUG] final sync', {playerY: this.player.y, groundY: this.groundYPosition, bodyY: body.y, bodyCenterY, actualBodyCenterY, bodyHeight: body.height, displayHeight: this.player.displayHeight, currentAnim, feetOffset: this.player.y - this.groundYPosition})
+    // #endregion
   }
 
   update(time: number): void {
@@ -4956,6 +4990,14 @@ export class MainScene extends Phaser.Scene {
   }
 
   private setIdlePose(force = false): void {
+    // #region agent log
+    const beforeAnim = this.player.anims.currentAnim?.key
+    const beforePlayerY = this.player.y
+    const body = this.player.body as Phaser.Physics.Arcade.Body | null
+    const beforeBodyY = body?.y
+    const beforeBodyHeight = body?.height
+    const beforeDisplayHeight = this.player.displayHeight
+    // #endregion
     // Don't set idle pose if in special states (except allow it to override if force is true)
     if (!force && (this.isThrowing || this.isTaunting || this.isCrouching || this.isJumping || this.isAiming)) {
       return
@@ -4976,18 +5018,34 @@ export class MainScene extends Phaser.Scene {
       this.player.setTexture(BITTEE_SPRITES.stand.key)
       // Set position to current position (or ground if on ground) - don't force position change
       // CRITICAL: Skip position adjustments during crouch exit transition to prevent jittering
+      // FIX: Do NOT set player.y here - let postUpdate() be the sole authority for position
+      // Setting player.y here conflicts with postUpdate() and causes idle wiggle
+      // postUpdate() will handle positioning consistently for all states
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body && this.isPlayerGrounded(body) && !this.isCrouching) {
-        // No visual offset - use exact ground position to prevent jitter
-        // postUpdate() will handle positioning consistently
-        // Use idle offset for stand pose (~10px lower)
-        const groundFeetY = this.groundYPosition  // Offset removed to prevent jittering
-          this.player.setY(groundFeetY)
+        // #region agent log
+        const beforeSetY = this.player.y
+        const groundFeetY = this.groundYPosition
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5017',message:'[DEBUG] setIdlePose SKIPPED setY (postUpdate handles it)',data:{beforePlayerY:beforeSetY,groundFeetY,groundY:this.groundYPosition,bodyY:body.y,bodyHeight:body.height,displayHeight:this.player.displayHeight,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        // REMOVED: this.player.setY(groundFeetY) - postUpdate() handles position
         // Body position will be set in postUpdate() - don't interfere here
       }
       this.player.setFlipX(false)
       // Now play idle animation
       this.player.anims.play(idleKey, true)
+      
+      // #region agent log
+      console.log('[DEBUG] setIdlePose completed', {
+        beforeAnim, afterAnim: this.player.anims.currentAnim?.key,
+        beforePlayerY, afterPlayerY: this.player.y,
+        beforeBodyY, afterBodyY: body?.y,
+        beforeBodyHeight, afterBodyHeight: body?.height,
+        beforeDisplayHeight, afterDisplayHeight: this.player.displayHeight,
+        groundY: this.groundYPosition,
+        force
+      })
+      // #endregion
     }
   }
 
@@ -5073,16 +5131,15 @@ export class MainScene extends Phaser.Scene {
       // Update collision box to match standing sprite size
       this.setupPlayerCollider(0)
       
-      if (isOnGround) {
-        this.player.setY(this.groundYPosition)  // Feet at ground level
-        if (body) {
-          body.y = this.groundYPosition - (body.height / 2)
-          // Ensure X position is preserved
-          body.x = restoreX
-          this.player.x = restoreX
-        }
+      // FIX: Don't set player.y here - let postUpdate() be the sole authority for position
+      // postUpdate() will handle positioning consistently for all grounded states
+      // Just ensure X position is preserved
+      if (body) {
+        body.x = restoreX
+        this.player.x = restoreX
+        // Body Y position will be set by postUpdate() - don't interfere here
       }
-      // Otherwise, keep his current Y position (he's in the air)
+      // Y position will be handled by postUpdate() on the next frame
       
       this.setIdlePose(true)
     })
@@ -5298,8 +5355,38 @@ export class MainScene extends Phaser.Scene {
           if (isOnGround && !atLeftEdge) {
             // Simple check like throwing: only block if in special states that should override running
             if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
+              // #region agent log
+              const beforeAnim = this.player.anims.currentAnim?.key
+              const beforePlayerY = this.player.y
+              const beforeBodyY = body?.y
+              const beforeBodyHeight = body?.height
+              const beforeDisplayHeight = this.player.displayHeight
+              // #endregion
+              
               // Directly play animation like throwing does - no complex currentAnim checks
+              // #region agent log
+              const beforeAnimsPlayY = this.player.y
+              const beforeAnimsPlayBodyY = body.y
+              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5365',message:'[DEBUG] BEFORE anims.play bittee-run-left',data:{beforePlayerY:beforeAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
               this.player.anims.play('bittee-run-left', true)
+              // #region agent log
+              const afterAnimsPlayY = this.player.y
+              const afterAnimsPlayBodyY = body.y
+              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5365',message:'[DEBUG] AFTER anims.play bittee-run-left',data:{beforePlayerY:beforeAnimsPlayY,afterPlayerY:afterAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,afterBodyY:afterAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+
+              // #region agent log
+              console.log('[DEBUG] running LEFT animation started', {
+                beforeAnim, afterAnim: this.player.anims.currentAnim?.key,
+                beforePlayerY, afterPlayerY: this.player.y,
+                beforeBodyY, afterBodyY: body?.y,
+                beforeBodyHeight, afterBodyHeight: body?.height,
+                beforeDisplayHeight, afterDisplayHeight: this.player.displayHeight,
+                groundY: this.groundYPosition
+              })
+              // #endregion
+              
               // Ensure body is enabled and movable for running
               if (body) {
                 body.enable = true
@@ -5338,8 +5425,38 @@ export class MainScene extends Phaser.Scene {
           if (isOnGround && !atRightEdge) {
             // Simple check like throwing: only block if in special states that should override running
             if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
+              // #region agent log
+              const beforeAnim = this.player.anims.currentAnim?.key
+              const beforePlayerY = this.player.y
+              const beforeBodyY = body?.y
+              const beforeBodyHeight = body?.height
+              const beforeDisplayHeight = this.player.displayHeight
+              // #endregion
+              
               // Directly play animation like throwing does - no complex currentAnim checks
+              // #region agent log
+              const beforeAnimsPlayY = this.player.y
+              const beforeAnimsPlayBodyY = body.y
+              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5425',message:'[DEBUG] BEFORE anims.play bittee-run-right',data:{beforePlayerY:beforeAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
               this.player.anims.play('bittee-run-right', true)
+              // #region agent log
+              const afterAnimsPlayY = this.player.y
+              const afterAnimsPlayBodyY = body.y
+              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5425',message:'[DEBUG] AFTER anims.play bittee-run-right',data:{beforePlayerY:beforeAnimsPlayY,afterPlayerY:afterAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,afterBodyY:afterAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+              // #endregion
+
+              // #region agent log
+              console.log('[DEBUG] running RIGHT animation started', {
+                beforeAnim, afterAnim: this.player.anims.currentAnim?.key,
+                beforePlayerY, afterPlayerY: this.player.y,
+                beforeBodyY, afterBodyY: body?.y,
+                beforeBodyHeight, afterBodyHeight: body?.height,
+                beforeDisplayHeight, afterDisplayHeight: this.player.displayHeight,
+                groundY: this.groundYPosition
+              })
+              // #endregion
+              
               // Ensure body is enabled and movable for running
               if (body) {
                 body.enable = true
@@ -5356,6 +5473,14 @@ export class MainScene extends Phaser.Scene {
         }
     } else {
       // Not moving - stop horizontal velocity
+      // #region agent log
+      const beforeStopAnim = this.player.anims.currentAnim?.key
+      const beforeStopPlayerY = this.player.y
+      const beforeStopBodyY = body?.y
+      const beforeStopBodyHeight = body?.height
+      const beforeStopDisplayHeight = this.player.displayHeight
+      // #endregion
+      
       this.player.setVelocityX(0)
         if (body) {
           body.setVelocityX(0)
@@ -5365,6 +5490,23 @@ export class MainScene extends Phaser.Scene {
           this.stopSound('bittee-run-sound')
           this.runSoundPlaying = false
         }
+        // Only set idle pose when on ground (don't interrupt jump animations)
+        if (isOnGround && !this.isJumping) {
+          this.setIdlePose(true)
+        }
+        
+        // #region agent log
+        console.log('[DEBUG] movement stopped (no keys pressed)', {
+          beforeStopAnim, afterStopAnim: this.player.anims.currentAnim?.key,
+          beforeStopPlayerY, afterStopPlayerY: this.player.y,
+          beforeStopBodyY, afterStopBodyY: body?.y,
+          beforeStopBodyHeight, afterStopBodyHeight: body?.height,
+          beforeStopDisplayHeight, afterStopDisplayHeight: this.player.displayHeight,
+          groundY: this.groundYPosition,
+          isOnGround,
+          isJumping: this.isJumping
+        })
+        // #endregion
       
       // If in idle pose, just ensure body is enabled - postUpdate() handles positioning
       const currentAnim = this.player.anims.currentAnim?.key
@@ -8132,20 +8274,28 @@ export class MainScene extends Phaser.Scene {
     const HEIGHT_MULTIPLIER = 4.5
     const bodyHeight = (currentHeight - 15) * HEIGHT_MULTIPLIER
     
+    // #region agent log
+    const beforeBodyHeight = playerBody.height
+    const beforePlayerY = this.player.y
+    const beforeBodyY = playerBody.y
+    // #endregion
     // Set body size and offset
     playerBody.setSize(bodyWidth, bodyHeight)
     playerBody.setOffset(0, 0)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8245',message:'[DEBUG] setupPlayerCollider body size changed',data:{beforeBodyHeight,afterBodyHeight:playerBody.height,bodyHeight,bodyWidth,beforePlayerY,afterPlayerY:this.player.y,beforeBodyY,afterBodyY:playerBody.y,displayHeight:this.player.displayHeight,currentAnim:this.player.anims.currentAnim?.key,isJumping:this.isJumping,isTaunting:this.isTaunting,isCrouching:this.isCrouching},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     
-    // Position body at ground level (only if not jumping)
-    if (!this.isJumping) {
-      const bodyBottomY = this.groundYPosition
-      playerBody.y = bodyBottomY - bodyHeight / 2
-      this.player.x = playerBody.x
-      this.player.y = bodyBottomY
-    } else {
-      // During jumps: just sync sprite to body
+    // Position body at ground level (only if not jumping and not taunting)
+    // FIX: Don't override position during taunt - taunt code handles its own positioning
+    // FIX: Don't set position here - let postUpdate() handle it to prevent conflicts
+    // setupPlayerCollider should only change body size, not position
+    // Position will be set correctly in postUpdate() which runs after this
+    if (this.isJumping || this.isTaunting) {
+      // During jumps or taunt: just sync sprite to body (don't override position)
       this.player.x = playerBody.x
     }
+    // For grounded states, don't set position here - postUpdate() will handle it
   }
   
 
@@ -8278,6 +8428,8 @@ export class MainScene extends Phaser.Scene {
 
     this.isTaunting = false
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
+    const onGround = body ? this.isPlayerGrounded(body) : false
+    
     if (body) {
       body.setAcceleration(0, 0)
       body.setVelocity(0, 0)
@@ -8286,9 +8438,29 @@ export class MainScene extends Phaser.Scene {
         this.tauntGravityDisabled = false
       }
     }
+    
+    // FIX: Set texture to stand before setupPlayerCollider to ensure correct body.height calculation
+    this.player.setTexture(BITTEE_SPRITES.stand.key)
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     this.setupPlayerCollider(0)
-    this.player.setY(this.groundYPosition)  // Feet at ground level (same as other grounded states)
+    
+    // FIX: Set position based on whether on ground or in air
+    if (onGround && body) {
+      // On ground: set feet to ground level (postUpdate will handle this, but set it here for immediate correction)
+      this.player.setY(this.groundYPosition)
+      body.x = this.player.x
+      body.y = this.groundYPosition - (body.height / 2)
+    } else if (body) {
+      // In air: preserve current Y position (will fall naturally)
+      const currentY = this.player.y
+      this.player.setY(currentY)
+      body.x = this.player.x
+      body.y = currentY - (body.height / 2)
+    }
+
+    // #region agent log
+    console.log('[DEBUG] cancelTaunt completed', {onGround, playerY: this.player.y, bodyY: body?.y, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+    // #endregion
 
     if (playIdle) {
       this.setIdlePose(true)
@@ -10357,40 +10529,32 @@ export class MainScene extends Phaser.Scene {
 
     // If already taunting, toggle it off
     if (this.isTaunting) {
-      this.isTaunting = false
-      // Preserve current position
+      // FIX: Don't preserve Y position here - different textures have different displayHeights
+      // which causes visual position shifts. Let cancelTaunt() handle position by setting to groundYPosition.
+      // Only preserve X position to maintain horizontal position.
       const currentX = this.player.x
       const onGround = this.isPlayerGrounded(body)
       
       this.player.anims.stop()
-      // Return to standing animation and ensure position is correct
-      this.player.setTexture(BITTEE_SPRITES.stand.key)
+      const currentXBefore = this.player.x
+      const currentYBefore = this.player.y
       
-      // Preserve exact position when exiting taunt
-      const currentY = this.player.y
-      if (onGround) {
-        // On ground: stay at same position
-        body.setAllowGravity(true)
-        this.tauntGravityDisabled = false
+      // FIX: Don't set texture or setup collider here - cancelTaunt() will handle it
+      // This prevents redundant position calculations that cause shifts
+      
+      // #region agent log
+      console.log('[DEBUG] exiting taunt', {currentXBefore, currentYBefore, onGround, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+      // #endregion
+      
+      // Call cancelTaunt to properly clean up taunt state and transition to idle
+      // cancelTaunt() will set position to groundYPosition if on ground, or preserve Y if in air
+      this.cancelTaunt(true)
+      
+      // Preserve X position after cancelTaunt (in case it was modified)
+      if (body) {
         this.player.setX(currentX)
-        this.player.setY(currentY)  // Stay at same Y position
-        if (body) {
-          body.x = currentX
-          body.y = currentY - (body.height / 2)  // Preserve position
-          body.setVelocity(0, 0)
-        }
-      } else {
-        // In air: allow falling, preserve X and current Y (will fall naturally)
-        body.setAllowGravity(true)
-        this.tauntGravityDisabled = false
-        this.player.setX(currentX)
-        this.player.setY(currentY)  // Preserve current Y position
-        if (body) {
-          body.x = currentX
-          body.y = currentY - (body.height / 2)
-        }
+        body.x = currentX
       }
-      this.player.anims.play('bittee-stand')
       return
     }
 
@@ -10407,7 +10571,7 @@ export class MainScene extends Phaser.Scene {
     const currentX = this.player.x
     
     if (onGround) {
-      // On ground: stay in same position, disable gravity
+      // On ground: set feet to ground level (don't preserve Y - different textures have different displayHeights)
       this.player.setVelocityX(0)
       if (body) {
         body.setVelocity(0, 0)
@@ -10417,17 +10581,24 @@ export class MainScene extends Phaser.Scene {
           this.tauntGravityDisabled = true
         }
       }
+      // FIX: Don't preserve Y position - set to groundYPosition to ensure feet stay at ground level
+      // Different textures (stand vs taunt) have different displayHeights, so preserving Y causes visual shifts
+      const currentXBefore = this.player.x
+      const currentYBefore = this.player.y
       this.player.setScale(this.basePlayerScale, this.basePlayerScale)
       this.setupPlayerCollider(0)
-      // Preserve exact position when entering taunt
-      const currentY = this.player.y
+      // Set feet to ground level to prevent position shifts from different displayHeights
       this.player.setX(currentX)
-      this.player.setY(currentY)  // Stay at same Y position
+      this.player.setY(this.groundYPosition)  // Feet at ground level
       if (body) {
         body.x = currentX
-        body.y = currentY - (body.height / 2)  // Preserve position
+        // Recalculate body center based on ground position and current body.height
+        body.y = this.groundYPosition - (body.height / 2)
         body.setVelocity(0, 0)
       }
+      // #region agent log
+      console.log('[DEBUG] entering taunt', {currentXBefore, currentXAfter: this.player.x, currentYBefore, playerYAfter: this.player.y, groundY: this.groundYPosition, bodyX: body.x, bodyY: body.y, bodyHeight: body.height, displayHeight: this.player.displayHeight})
+      // #endregion
     } else {
       // In air: allow falling, just preserve X position
       this.player.setVelocityX(0)
