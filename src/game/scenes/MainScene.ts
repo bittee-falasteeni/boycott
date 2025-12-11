@@ -5820,13 +5820,15 @@ export class MainScene extends Phaser.Scene {
       this.updateAmmoDisplay()
       // Remove Super Rock indicator when ammo is used up
       if (this.rockAmmo.length === 0 || this.rockAmmo.every(entry => entry.ammo === 0)) {
-        const superRockIndicator = this.powerUpIndicators.get('super-rock')
+        // Key is generated from label: "Dawood's Throw" -> "dawood's-throw"
+        const dawoodKey = 'dawood\'s-throw'
+        const superRockIndicator = this.powerUpIndicators.get(dawoodKey)
         if (superRockIndicator) {
           if (superRockIndicator.tween) superRockIndicator.tween.remove()
           superRockIndicator.text.destroy()
           if (superRockIndicator.progressBar) superRockIndicator.progressBar.destroy()
           if (superRockIndicator.progressBarBg) superRockIndicator.progressBarBg.destroy()
-          this.powerUpIndicators.delete('super-rock')
+          this.powerUpIndicators.delete(dawoodKey)
         }
       }
     }
@@ -6750,8 +6752,10 @@ export class MainScene extends Phaser.Scene {
         // Red slingshot: 1 super rock ammo (double size, indestructible, straight up)
         this.rockAmmo.push({ type: 'red', ammo: 1 })
         // Only show indicator if we don't already have one (to prevent it from being removed by other powerups)
-        if (!this.powerUpIndicators.has('super-rock')) {
-          this.showPowerUpIndicator('Dawood\'s Throw', 0)  // No duration, shows until ammo is used
+        // Key is generated from label: "Dawood's Throw" -> "dawood's-throw"
+        const dawoodKey = 'dawood\'s-throw'
+        if (!this.powerUpIndicators.has(dawoodKey)) {
+          this.showPowerUpIndicator('Dawood\'s Throw', 0, false)  // No duration, no progress bar - shows until ammo is used
         }
         this.updateAmmoDisplay()
         break
@@ -7239,7 +7243,7 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  private resetPowerUps(): void {
+  private resetPowerUps(preserveRedSlingshotAmmo: boolean = false): void {
     // Stop all powerup sounds
     this.timeSoundInstances.forEach(instance => {
       if (instance && instance.isPlaying) {
@@ -7280,8 +7284,14 @@ export class MainScene extends Phaser.Scene {
     }
     this.isInvulnerable = false
     
-    // Clear rock ammo
-    this.rockAmmo = []
+    // Clear rock ammo, but preserve red slingshot ammo when advancing levels
+    if (preserveRedSlingshotAmmo) {
+      // Only keep red slingshot ammo entries
+      this.rockAmmo = this.rockAmmo.filter(entry => entry.type === 'red' && entry.ammo > 0)
+    } else {
+      // Clear all rock ammo (game over, respawn, etc.)
+      this.rockAmmo = []
+    }
     this.updateAmmoDisplay()
     
     // Clear tank hit indicator timers
@@ -10222,8 +10232,9 @@ export class MainScene extends Phaser.Scene {
       
       // End powerups (shield and slow motion) when transitioning to next level
       // Use resetPowerUps to clean up everything including indicators and sounds
+      // Preserve red slingshot ammo when advancing levels
       try {
-        this.resetPowerUps()
+        this.resetPowerUps(true)  // true = preserve red slingshot ammo
       } catch (err: unknown) {
         console.warn('Error resetting powerups:', err)
       }
