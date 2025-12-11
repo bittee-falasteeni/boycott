@@ -1297,7 +1297,7 @@ export class MainScene extends Phaser.Scene {
         }
 
         try {
-          this.handlePlayerHit(ball)
+        this.handlePlayerHit(ball)
         } catch (err) {
           console.error('[COLLISION ERROR] Error in handlePlayerHit:', err)
           console.error('[COLLISION ERROR] Ball:', { x: ball.x, y: ball.y, active: ball.active })
@@ -1340,12 +1340,12 @@ export class MainScene extends Phaser.Scene {
         }
         const powerUpType = powerUp.getData('type') as 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'
         try {
-          this.collectPowerUp(powerUpType)
+        this.collectPowerUp(powerUpType)
         } catch (err) {
           console.error('[COLLISION ERROR] Error in collectPowerUp:', err)
         }
         try {
-          powerUp.destroy()
+        powerUp.destroy()
         } catch (err) {
           console.error('[COLLISION ERROR] Error destroying powerup:', err)
         }
@@ -1395,7 +1395,7 @@ export class MainScene extends Phaser.Scene {
           if ((!this.isInvulnerable && !hasShield) && enemy && enemy.active) {
             // Force immediate hit - no additional checks needed
             try {
-              this.handlePlayerHit(enemy as unknown as Phaser.Physics.Arcade.Image)
+            this.handlePlayerHit(enemy as unknown as Phaser.Physics.Arcade.Image)
             } catch (err) {
               console.error('[COLLISION ERROR] Error in handlePlayerHit (enemy):', err)
             }
@@ -1611,49 +1611,49 @@ export class MainScene extends Phaser.Scene {
 
     // Wrap critical operations in try-catch to prevent crashes
     try {
-      this.handleTaunt()
+    this.handleTaunt()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in handleTaunt:', err)
     }
     
     try {
-      this.handleJump()
+    this.handleJump()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in handleJump:', err)
     }
     
     try {
-      this.handlePlayerMovement()
+    this.handlePlayerMovement()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in handlePlayerMovement:', err)
     }
     
     try {
-      this.handleThrowing(time)
+    this.handleThrowing(time)
     } catch (err) {
       console.error('[UPDATE ERROR] Error in handleThrowing:', err)
     }
     
     try {
-      this.handleAutoFire(time)  // Handle auto-fire for green slingshot
+    this.handleAutoFire(time)  // Handle auto-fire for green slingshot
     } catch (err) {
       console.error('[UPDATE ERROR] Error in handleAutoFire:', err)
     }
     
     try {
-      this.cleanupBullets()
+    this.cleanupBullets()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in cleanupBullets:', err)
     }
     
     try {
-      this.updatePowerUps()
+    this.updatePowerUps()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in updatePowerUps:', err)
     }
     
     try {
-      this.updateProjectedHitIndicators()
+    this.updateProjectedHitIndicators()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in updateProjectedHitIndicators:', err)
     }
@@ -1669,16 +1669,16 @@ export class MainScene extends Phaser.Scene {
     
     // Update aiming triangles if aiming, otherwise remove them
     try {
-      if (this.isAiming) {
-        this.updateAimingTriangle()
-      } else {
-        // FIX: Make sure triangles are removed when not aiming
-        if (this.aimingTriangles.size > 0) {
-          this.removeAimingTriangle()
-        }
-        // FIX: Also aggressively clean up any orphaned triangles, especially around ground level
-        this.cleanupOrphanedTriangles()
+    if (this.isAiming) {
+      this.updateAimingTriangle()
+    } else {
+      // FIX: Make sure triangles are removed when not aiming
+      if (this.aimingTriangles.size > 0) {
+        this.removeAimingTriangle()
       }
+      // FIX: Also aggressively clean up any orphaned triangles, especially around ground level
+      this.cleanupOrphanedTriangles()
+    }
     } catch (err) {
       console.error('[UPDATE ERROR] Error in aiming triangles:', err)
     }
@@ -1694,14 +1694,14 @@ export class MainScene extends Phaser.Scene {
     // Check ball bounces AFTER physics step but before storing velocities
     // This ensures prevVelY is from the previous frame
     try {
-      this.checkBallBounces()
+    this.checkBallBounces()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in checkBallBounces:', err)
     }
     
     // Store velocities at the END of update for next frame's comparison
     try {
-      this.storeBallVelocities()
+    this.storeBallVelocities()
     } catch (err) {
       console.error('[UPDATE ERROR] Error in storeBallVelocities:', err)
     }
@@ -3463,7 +3463,8 @@ export class MainScene extends Phaser.Scene {
             }
           }
         }
-        this.updateHeartbeat()
+        // COMMENTED OUT: Heartbeat sounds during gameplay (too much audio for mobile)
+        // this.updateHeartbeat()
       }
     }
   }
@@ -5308,7 +5309,7 @@ export class MainScene extends Phaser.Scene {
             }
             // Play run sound if not already playing
             if (!this.runSoundPlaying) {
-              this.playSound('bittee-run-sound', 0.4, true)
+              this.playSound('bittee-run-sound', 0.25, true)  // Match throw sound volume
               this.runSoundPlaying = true
             }
           }
@@ -5348,7 +5349,7 @@ export class MainScene extends Phaser.Scene {
             }
             // Play run sound if not already playing
             if (!this.runSoundPlaying) {
-              this.playSound('bittee-run-sound', 0.4, true)
+              this.playSound('bittee-run-sound', 0.25, true)  // Match throw sound volume
               this.runSoundPlaying = true
             }
           }
@@ -6146,32 +6147,21 @@ export class MainScene extends Phaser.Scene {
       }
       
       // Lower music volume by half during death transition (2 seconds before respawn modal)
-      const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
-      const reducedVolume = volumeMultiplier * 0.5
-      if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
-        // Stop and restart with reduced volume
-        const wasPlaying1 = this.backgroundMusic1.isPlaying
-        this.backgroundMusic1.stop()
-        if (wasPlaying1 && reducedVolume > 0) {
-          this.backgroundMusic1.play({ volume: 0.25 * reducedVolume })
+      // Phaser doesn't support changing volume of playing sounds directly
+      // We'll pause after 2 seconds - music will resume where it left off when respawn button is pressed
+      // Note: Volume lowering would require stopping/restarting which causes music to restart
+      this.time.delayedCall(2000, () => {
+        // Pause music after 2 seconds (it will resume where it left off)
+        if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+          this.backgroundMusic1.pause()
         }
-      }
-      if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
-        // Stop and restart with reduced volume
-        const wasPlaying2 = this.backgroundMusic2.isPlaying
-        this.backgroundMusic2.stop()
-        if (wasPlaying2 && reducedVolume > 0) {
-          this.backgroundMusic2.play({ volume: 0.25 * reducedVolume })
+        if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+          this.backgroundMusic2.pause()
         }
-      }
-      if (this.bossMusic && this.bossMusic.isPlaying) {
-        // Stop and restart with reduced volume (boss music already at 0.25, so half is 0.125)
-        const wasPlayingBoss = this.bossMusic.isPlaying
-        this.bossMusic.stop()
-        if (wasPlayingBoss && reducedVolume > 0) {
-          this.bossMusic.play({ volume: 0.25 * reducedVolume })
+        if (this.bossMusic && this.bossMusic.isPlaying) {
+          this.bossMusic.pause()
         }
-      }
+      })
       // If in air, keep current Y position (deathY already set to current position)
       
       if (body) {
@@ -6312,19 +6302,16 @@ export class MainScene extends Phaser.Scene {
       // Update collision box to match standing sprite size
       this.setupPlayerCollider(0)
       
-      if (isOnGround) {
-        this.player.setY(this.groundYPosition)  // Feet at ground level
-        if (body) {
+      // Preserve position - if in air, stay in air; if on ground, stay on ground
+      const currentY = this.player.y
+      this.player.x = currentX
+      this.player.y = currentY
+      if (body) {
+        body.x = currentX
+        if (isOnGround) {
           body.y = this.groundYPosition - (body.height / 2)
-          // Preserve X position - don't change it
-          body.x = currentX
-          this.player.x = currentX
-        }
-      } else {
-        // In air: preserve both X and Y positions
-        if (body) {
-          body.x = currentX
-          this.player.x = currentX
+        } else {
+          body.y = currentY - (body.height / 2)  // Preserve air position
         }
       }
       
@@ -6550,13 +6537,13 @@ export class MainScene extends Phaser.Scene {
     
     // Clean up ball properly to remove debug graphics immediately
     try {
-      ball.setActive(false)
-      ball.setVisible(false)
-      const body = ball.body as Phaser.Physics.Arcade.Body
-      if (body) {
-        body.enable = false
-      }
-      ball.destroy()
+    ball.setActive(false)
+    ball.setVisible(false)
+    const body = ball.body as Phaser.Physics.Arcade.Body
+    if (body) {
+      body.enable = false
+    }
+    ball.destroy()
     } catch (err) {
       console.error('[SPLITBALL ERROR] Error destroying ball:', err)
     }
@@ -6750,7 +6737,8 @@ export class MainScene extends Phaser.Scene {
           this.lives++
           this.playSound('life-up', 1.0)
           this.updateHud()
-          this.updateHeartbeat()
+          // COMMENTED OUT: Heartbeat sounds during gameplay (too much audio for mobile)
+        // this.updateHeartbeat()
           this.showLifeGainText()
         }
         break
@@ -7269,13 +7257,13 @@ export class MainScene extends Phaser.Scene {
     
     // Reset auto-fire (but preserve if preserveLeLeSbeed is true)
     if (!preserveLeLeSbeed) {
-      if (this.autoFireTimer) {
-        this.autoFireTimer.remove(false)
-        this.autoFireTimer = undefined
-      }
-      this.isAutoFireActive = false
-      this.autoFireStartTime = 0
-      this.autoFireLastShot = 0
+    if (this.autoFireTimer) {
+      this.autoFireTimer.remove(false)
+      this.autoFireTimer = undefined
+    }
+    this.isAutoFireActive = false
+    this.autoFireStartTime = 0
+    this.autoFireLastShot = 0
     }
     
     // Reset slow motion
@@ -7303,7 +7291,7 @@ export class MainScene extends Phaser.Scene {
       this.rockAmmo = this.rockAmmo.filter(entry => entry.type === 'red' && entry.ammo > 0)
     } else {
       // Clear all rock ammo (game over, respawn, etc.)
-      this.rockAmmo = []
+    this.rockAmmo = []
     }
     this.updateAmmoDisplay()
     
@@ -10371,21 +10359,34 @@ export class MainScene extends Phaser.Scene {
     // If already taunting, toggle it off
     if (this.isTaunting) {
       this.isTaunting = false
-      body.setAllowGravity(true)
-      this.tauntGravityDisabled = false
+      // Preserve current position
+      const currentX = this.player.x
+      const onGround = this.isPlayerGrounded(body)
+      
       this.player.anims.stop()
       // Return to standing animation and ensure position is correct
       this.player.setTexture(BITTEE_SPRITES.stand.key)
-      // Preserve current X position to prevent left shift
-      const currentX = this.player.x
-      // Offset removed to prevent jittering
-      this.player.setY(this.groundYPosition)
-      this.player.setX(currentX)  // Preserve X position
-      if (body) {
-        // Sync body position without updateFromGameObject (which can cause glitches)
-        body.x = currentX
-        body.y = this.groundYPosition - (body.height / 2)  // Offset removed to prevent jittering
-        body.setVelocity(0, 0)
+      
+      if (onGround) {
+        // On ground: stay at ground level
+        body.setAllowGravity(true)
+        this.tauntGravityDisabled = false
+        this.player.setX(currentX)
+        this.player.setY(this.groundYPosition)
+        if (body) {
+          body.x = currentX
+          body.y = this.groundYPosition - (body.height / 2)
+          body.setVelocity(0, 0)
+        }
+      } else {
+        // In air: allow falling, preserve X
+        body.setAllowGravity(true)
+        this.tauntGravityDisabled = false
+        this.player.setX(currentX)
+        // Y will change naturally as player falls
+        if (body) {
+          body.x = currentX
+        }
       }
       this.player.anims.play('bittee-stand')
       return
@@ -10397,33 +10398,49 @@ export class MainScene extends Phaser.Scene {
     }
 
     const onGround = this.isPlayerGrounded(body)
-    if (!onGround) {
-      return
-    }
-
+    
     // Directly set taunt state and play animation like throwing does
     this.isTaunting = true
-    // Preserve current X position to prevent left shift
+    // Preserve current position to prevent shifting
     const currentX = this.player.x
-    this.player.setVelocityX(0)
-    if (body) {
-      body.setVelocity(0, 0)
-      body.setAcceleration(0, 0)
-      if (!this.tauntGravityDisabled) {
-        body.setAllowGravity(false)
-        this.tauntGravityDisabled = true
+    
+    if (onGround) {
+      // On ground: stay in same position, disable gravity
+      this.player.setVelocityX(0)
+      if (body) {
+        body.setVelocity(0, 0)
+        body.setAcceleration(0, 0)
+        if (!this.tauntGravityDisabled) {
+          body.setAllowGravity(false)
+          this.tauntGravityDisabled = true
+        }
       }
-    }
-    this.player.setScale(this.basePlayerScale, this.basePlayerScale)
-    this.setupPlayerCollider(0)
-    // Ensure Bittee is positioned correctly on ground for taunt - preserve X position
-    this.player.setX(currentX)  // Preserve X to prevent left shift
-    this.player.setY(this.groundYPosition)  // Offset removed to prevent jittering
-    if (body) {
-      // Sync body position manually to prevent glitches
-      body.x = currentX
-      body.y = this.groundYPosition - (body.height / 2)  // Offset removed to prevent jittering
-      body.setVelocity(0, 0)
+      this.player.setScale(this.basePlayerScale, this.basePlayerScale)
+      this.setupPlayerCollider(0)
+      // Preserve position
+      this.player.setX(currentX)
+      this.player.setY(this.groundYPosition)  // On ground, use ground position
+      if (body) {
+        body.x = currentX
+        body.y = this.groundYPosition - (body.height / 2)
+        body.setVelocity(0, 0)
+      }
+    } else {
+      // In air: allow falling, just preserve X position
+      this.player.setVelocityX(0)
+      if (body) {
+        body.setVelocityX(0)
+        // Keep gravity enabled so player can fall
+        body.setAllowGravity(true)
+        this.tauntGravityDisabled = false
+      }
+      this.player.setScale(this.basePlayerScale, this.basePlayerScale)
+      this.setupPlayerCollider(0)
+      // Preserve X, allow Y to change (falling)
+      this.player.setX(currentX)
+      if (body) {
+        body.x = currentX
+      }
     }
     // Directly play taunt like throwing does - stop animation and set texture
     this.player.setFlipX(false)
