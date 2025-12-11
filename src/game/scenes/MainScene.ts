@@ -1515,8 +1515,16 @@ export class MainScene extends Phaser.Scene {
     const isIdleAnim = (animKey === 'bittee-idle' || animKey === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
     
     if (isIdleAnim) {
+      // #region agent log
+      const beforeY = this.player.y;
+      const targetY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE;
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1517',message:'postUpdate: setting idle Y',data:{beforeY,beforeBodyY:body.y,targetY,groundY:this.groundYPosition,offset:PLAYER_FOOT_Y_OFFSET_IDLE},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       // Idle/stand pose: feet ~10px lower
       this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1520',message:'postUpdate: after setting idle Y',data:{afterY:this.player.y,bodyY:body.y,diff:Math.abs(this.player.y-targetY)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
     } else if (isRunningAnim) {
       // Running pose: feet slightly higher
       this.player.y = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING
@@ -1757,12 +1765,32 @@ export class MainScene extends Phaser.Scene {
     if (this.postTransitionLockFrames > 0) {
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body) {
-        // Position body at ground level
-        const targetBodyBottomY = this.groundYPosition
+        // Position body at ground level, but use correct offset based on animation state
+        const animKey = this.player.anims.currentAnim?.key
+        const isRunningAnim = animKey === 'bittee-run-left' || animKey === 'bittee-run-right'
+        const isIdleAnim = (animKey === 'bittee-idle' || animKey === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
+        
+        let targetPlayerY: number
+        if (isIdleAnim) {
+          targetPlayerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE
+        } else if (isRunningAnim) {
+          targetPlayerY = this.groundYPosition + PLAYER_FOOT_Y_OFFSET_IDLE_RUNNING
+        } else {
+          targetPlayerY = this.groundYPosition + 3  // Default offset
+        }
+        
+        const targetBodyBottomY = targetPlayerY
         const targetBodyCenterY = targetBodyBottomY - (body.height / 2)
+        // #region agent log
+        const beforeY = this.player.y;
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1763',message:'postTransitionLockFrames: setting Y',data:{beforeY,targetPlayerY,groundY:this.groundYPosition,postTransitionLockFrames:this.postTransitionLockFrames,animKey,isIdleAnim,isRunningAnim},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         body.y = targetBodyCenterY
         this.player.x = body.x
-        this.player.y = targetBodyBottomY
+        this.player.y = targetPlayerY
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1784',message:'postTransitionLockFrames: after setting Y',data:{afterY:this.player.y,bodyY:body.y},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         body.setVelocity(0, 0)
         body.setAcceleration(0, 0)
         // Don't force physics step - it can interfere with ball physics
@@ -6681,12 +6709,21 @@ export class MainScene extends Phaser.Scene {
         body.setBounce(0, 0)  // Remove bounce after hitting ground
         
         // FIX: Ensure powerup is positioned at ground level, not below
-        // Position sprite so its bottom edge is at groundYPosition
+        // Position body bottom at groundYPosition, then sync sprite to body
         const powerUpBottomY = this.groundYPosition
-        const powerUpCenterY = powerUpBottomY - (powerUp.displayHeight / 2)
-        powerUp.setY(powerUpCenterY)
-        // Sync body position to match sprite (body center should be at sprite center)
-        body.y = powerUpCenterY
+        const bodyBottomY = powerUpBottomY
+        const bodyCenterY = bodyBottomY - (body.height / 2)
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:6683',message:'powerup hit ground: positioning',data:{beforeY:powerUp.y,groundY:this.groundYPosition,displayHeight:powerUp.displayHeight,bodyHeight:body.height,bodyCenterY,bodyY:body.y},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        // Set body position first (body bottom at ground level)
+        body.y = bodyCenterY
+        // Then sync sprite center to body center (sprite origin is 0.5, 0.5)
+        const spriteCenterY = bodyCenterY
+        powerUp.setY(spriteCenterY)
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:6690',message:'powerup hit ground: after positioning',data:{afterY:powerUp.y,bodyY:body.y,bodyBottom:body.y+(body.height/2),groundY:this.groundYPosition,diffFromGround:Math.abs((body.y+(body.height/2))-this.groundYPosition)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         
         // Start blinking after 2 seconds from hitting ground
         this.time.delayedCall(2000, () => {
@@ -10279,9 +10316,22 @@ export class MainScene extends Phaser.Scene {
       try {
         this.applyLevel(nextIndex)
         this.refreshSettingsPanel()
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10282',message:'advanceLevel: before cleanup',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0,level:nextIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         if (this.balls) {
           this.balls.clear(true, true)
         }
+        // FIX: Clear bullets and powerups when advancing levels (they were causing crashes)
+        if (this.bullets) {
+          this.bullets.clear(true, true)
+        }
+        if (this.powerUps) {
+          this.powerUps.clear(true, true)
+        }
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10286',message:'advanceLevel: after balls.clear',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         
         // FIX: Clear all triangles when advancing to new level
         this.clearAllTriangles()
@@ -10308,7 +10358,13 @@ export class MainScene extends Phaser.Scene {
           console.error('[CLEANUP] Error during level transition cleanup:', err)
         }
         
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10311',message:'advanceLevel: before spawnLevelWave',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         this.spawnLevelWave(this.currentLevelIndex)
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10313',message:'advanceLevel: after spawnLevelWave',data:{ballCount:this.balls?.children.size||0,bulletCount:this.bullets?.children.size||0,powerUpCount:this.powerUps?.children.size||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         
         // Unlock the next level
         this.unlockLevel(nextIndex)
