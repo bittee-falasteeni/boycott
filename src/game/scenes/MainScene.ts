@@ -552,8 +552,9 @@ export class MainScene extends Phaser.Scene {
   private jetShakeTimer?: Phaser.Time.TimerEvent  // Continuous shake timer for jet
   private powerUpIndicators: Map<string, {
     text: Phaser.GameObjects.Text
-    progressBar: Phaser.GameObjects.Graphics
-    progressBarBg: Phaser.GameObjects.Graphics
+    progressBar?: Phaser.GameObjects.Graphics
+    progressBarBg?: Phaser.GameObjects.Graphics
+    countdownText?: Phaser.GameObjects.Text
     tween?: Phaser.Tweens.Tween
   }> = new Map()  // Support multiple power-ups (shield, slow motion)
   private lifeGainText?: Phaser.GameObjects.Text  // "+ life" text
@@ -1332,7 +1333,7 @@ export class MainScene extends Phaser.Scene {
         if (spawnTime && this.time.now - spawnTime < 200) {
           return  // Too soon after spawn, ignore collection
         }
-        const powerUpType = powerUp.getData('type') as 'life' | 'shield' | 'time' | 'slingshot-red'
+        const powerUpType = powerUp.getData('type') as 'life' | 'shield' | 'time' | 'slingshot-red' | 'slingshot-green'
         this.collectPowerUp(powerUpType)
         powerUp.destroy()
       },
@@ -1617,6 +1618,27 @@ export class MainScene extends Phaser.Scene {
       this.lastMemoryCleanup = time
       // Clean up inactive/destroyed objects
       this.cleanupInactiveObjects()
+      
+      // Debug: Log memory usage and object counts
+      try {
+        const ballCount = this.balls ? this.balls.children.size : 0
+        const bulletCount = this.bullets ? this.bullets.children.size : 0
+        const powerUpCount = this.powerUps ? this.powerUps.children.size : 0
+        const triangleCount = this.aimingTriangles.size + this.projectedHitIndicators.size + this.enemyHitIndicators.size
+        const indicatorCount = this.powerUpIndicators.size
+        // Count active tweens and timers (approximate)
+        const tweenCount = (this.tweens as any)._active.length || 0
+        const timerCount = (this.time as any)._pending.length || 0
+        
+        console.log(`[MEMORY DEBUG] Level ${this.currentLevelIndex + 1} | Balls: ${ballCount} | Bullets: ${bulletCount} | PowerUps: ${powerUpCount} | Triangles: ${triangleCount} | Indicators: ${indicatorCount} | Tweens: ${tweenCount} | Timers: ${timerCount}`)
+        
+        // Warn if counts are getting high
+        if (ballCount > 20 || bulletCount > 30 || powerUpCount > 10 || triangleCount > 20 || tweenCount > 50 || timerCount > 30) {
+          console.warn(`[MEMORY WARNING] High object counts detected! This may cause crashes.`)
+        }
+      } catch (err) {
+        console.error('[MEMORY DEBUG] Error logging memory stats:', err)
+      }
     }
     
     
@@ -5678,8 +5700,8 @@ export class MainScene extends Phaser.Scene {
         if (superRockIndicator) {
           if (superRockIndicator.tween) superRockIndicator.tween.remove()
           superRockIndicator.text.destroy()
-          superRockIndicator.progressBar.destroy()
-          superRockIndicator.progressBarBg.destroy()
+          if (superRockIndicator.progressBar) superRockIndicator.progressBar.destroy()
+          if (superRockIndicator.progressBarBg) superRockIndicator.progressBarBg.destroy()
           this.powerUpIndicators.delete('super-rock')
         }
       }
@@ -6424,8 +6446,8 @@ export class MainScene extends Phaser.Scene {
     // Different scales for different power-ups
     if (type === 'shield') {
       powerUp.setScale(0.18)  // Shield icon larger
-    } else if (type === 'slingshot-red') {
-      powerUp.setScale(0.18)  // Slingshot icon same size as shield
+    } else if (type === 'slingshot-red' || type === 'slingshot-green') {
+      powerUp.setScale(0.18)  // Slingshot icons same size as shield
     } else {
       powerUp.setScale(0.08)  // Life and time icons smaller
     }
@@ -6437,6 +6459,10 @@ export class MainScene extends Phaser.Scene {
       body.setBounce(0.3, 0.3)
       body.setCollideWorldBounds(true)
       body.setFrictionX(0.5)  // Add friction to slow down sliding
+      // Widen collision box to make powerups easier to collect (2x wider and taller)
+      const originalWidth = powerUp.width * powerUp.scaleX
+      const originalHeight = powerUp.height * powerUp.scaleY
+      body.setSize(originalWidth * 2, originalHeight * 2)
       // Give it a small upward velocity to make it pop out
       body.setVelocityY(-100)
       
@@ -6540,7 +6566,7 @@ export class MainScene extends Phaser.Scene {
       case 'shield':
         // Activate shield (invincibility + visual bubble)
         this.activateShield()
-        this.showPowerUpIndicator('Olive Force', 5000)
+        this.showPowerUpIndicator('Zaytoon Force', 5000)
         break
         
       case 'time':
@@ -6554,13 +6580,13 @@ export class MainScene extends Phaser.Scene {
         this.rockAmmo.push({ type: 'red', ammo: 1 })
         // Only show indicator if we don't already have one (to prevent it from being removed by other powerups)
         if (!this.powerUpIndicators.has('super-rock')) {
-          this.showPowerUpIndicator('David\'s Throw', 0)  // No duration, shows until ammo is used
+          this.showPowerUpIndicator('Dawood\'s Throw', 0)  // No duration, shows until ammo is used
         }
         this.updateAmmoDisplay()
         break
         
       case 'slingshot-green':
-        // Green slingshot: Auto Throw - 2x fire rate, automatic, lasts 3 seconds
+        // Green slingshot: Auto Throw - 2x fire rate, automatic, lasts 4 seconds
         // Cancel existing auto-fire if active
         if (this.autoFireTimer) {
           this.autoFireTimer.remove(false)
@@ -6570,11 +6596,11 @@ export class MainScene extends Phaser.Scene {
         this.autoFireLastShot = 0
         this.autoFireStartTime = this.time.now
         
-        // Show indicator with 3 second timer
-        this.showPowerUpIndicator('LeLe Speed', 3000)
+        // Show indicator with 4 second timer (no progress bar for LeLe)
+        this.showPowerUpIndicator('LeLe Sbeed', 4000, false)  // false = no progress bar
         
-        // Set timer to disable auto-fire after 3 seconds
-        this.autoFireTimer = this.time.delayedCall(3000, () => {
+        // Set timer to disable auto-fire after 4 seconds
+        this.autoFireTimer = this.time.delayedCall(4000, () => {
           this.isAutoFireActive = false
           this.autoFireTimer = undefined
           this.updateAmmoDisplay()  // Remove timer bar
@@ -6622,7 +6648,7 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  private showPowerUpIndicator(label: string, duration: number): void {
+  private showPowerUpIndicator(label: string, duration: number, showProgressBar: boolean = true): void {
     const powerUpKey = label.toLowerCase().replace(' ', '-')  // "slow motion" -> "slow-motion", "shield" -> "shield"
     
     // Remove existing indicator for this power-up if any
@@ -6630,8 +6656,9 @@ export class MainScene extends Phaser.Scene {
     if (existing) {
       if (existing.tween) existing.tween.remove()
       existing.text.destroy()
-      existing.progressBar.destroy()
-      existing.progressBarBg.destroy()
+      if (existing.progressBar) existing.progressBar.destroy()
+      if (existing.progressBarBg) existing.progressBarBg.destroy()
+      if (existing.countdownText) existing.countdownText.destroy()
       this.powerUpIndicators.delete(powerUpKey)
     }
     
@@ -6662,54 +6689,103 @@ export class MainScene extends Phaser.Scene {
     text.setDepth(20)
     text.setScale(2.0)  // Large scale to extend beyond screen edges
     
-    // Create progress bar background
-    const progressBarBg = this.add.graphics()
-    progressBarBg.fillStyle(0x2a2a2a, 1)  // Dark background
-    progressBarBg.fillRect(worldWidth / 2 - barWidth / 2, barY, barWidth, barHeight)
-    progressBarBg.setScrollFactor(0)
-    progressBarBg.setDepth(5)
-    
-    // Create progress bar (light olive green)
-    const progressBar = this.add.graphics()
-    progressBar.fillStyle(0x7fb069, 1)  // Light olive green
+    // Create progress bar background (only if showProgressBar is true)
+    let progressBarBg: Phaser.GameObjects.Graphics | undefined
+    let progressBar: Phaser.GameObjects.Graphics | undefined
+    let countdownText: Phaser.GameObjects.Text | undefined
     const barX = worldWidth / 2 - barWidth / 2
-    progressBar.fillRect(barX, barY, barWidth, barHeight)
-    progressBar.setScrollFactor(0)
-    progressBar.setDepth(6)
     
-    // Animate progress bar shrinking from right to left (only if duration > 0)
-    const progressData = { width: barWidth }
+    if (showProgressBar) {
+      progressBarBg = this.add.graphics()
+      progressBarBg.fillStyle(0x2a2a2a, 1)  // Dark background
+      progressBarBg.fillRect(barX, barY, barWidth, barHeight)
+      progressBarBg.setScrollFactor(0)
+      progressBarBg.setDepth(5)
+      
+      // Create progress bar (light olive green)
+      progressBar = this.add.graphics()
+      progressBar.fillStyle(0x7fb069, 1)  // Light olive green
+      progressBar.fillRect(barX, barY, barWidth, barHeight)
+      progressBar.setScrollFactor(0)
+      progressBar.setDepth(6)
+    } else {
+      // Create countdown text instead of progress bar
+      countdownText = this.add.text(worldWidth / 2, barY + barHeight / 2, '3', {
+        fontSize: '48px',
+        fontFamily: 'MontserratBold',
+        color: '#7fb069',
+      })
+      countdownText.setOrigin(0.5, 0.5)
+      countdownText.setScrollFactor(0)
+      countdownText.setDepth(6)
+    }
+    
+    // Animate progress bar shrinking from right to left OR countdown (only if duration > 0)
+    const progressData = { width: barWidth, countdown: duration > 0 ? Math.ceil(duration / 1000) : 0 }
     let tween: Phaser.Tweens.Tween | undefined
     if (duration > 0) {
-      tween = this.tweens.add({
-      targets: progressData,
-      width: 0,
-      duration: duration,
-      ease: 'Linear',
-      onUpdate: () => {
-        if (progressBar && progressBar.active) {
-          const currentWidth = progressData.width
-          progressBar.clear()
-          progressBar.fillStyle(0x7fb069, 1)
-          const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
-          progressBar.fillRect(barX, barY, clampedWidth, barHeight)
-        }
-        // Fade text as time runs out
-        if (text && text.active) {
-          const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
-          text.setAlpha(progress)
-        }
-      },
-      onComplete: () => {
-        const indicator = this.powerUpIndicators.get(powerUpKey)
-        if (indicator) {
-          indicator.text.destroy()
-          indicator.progressBar.destroy()
-          indicator.progressBarBg.destroy()
-          this.powerUpIndicators.delete(powerUpKey)
-        }
-      },
-    })
+      if (showProgressBar) {
+        // Progress bar animation
+        tween = this.tweens.add({
+          targets: progressData,
+          width: 0,
+          duration: duration,
+          ease: 'Linear',
+          onUpdate: () => {
+            if (progressBar && progressBar.active) {
+              const currentWidth = progressData.width
+              progressBar.clear()
+              progressBar.fillStyle(0x7fb069, 1)
+              const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
+              progressBar.fillRect(barX, barY, clampedWidth, barHeight)
+            }
+            // Fade text as time runs out
+            if (text && text.active) {
+              const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
+              text.setAlpha(progress)
+            }
+          },
+          onComplete: () => {
+            const indicator = this.powerUpIndicators.get(powerUpKey)
+            if (indicator) {
+              indicator.text.destroy()
+              if (indicator.progressBar) indicator.progressBar.destroy()
+              if (indicator.progressBarBg) indicator.progressBarBg.destroy()
+              if (indicator.countdownText) indicator.countdownText.destroy()
+              this.powerUpIndicators.delete(powerUpKey)
+            }
+          },
+        })
+      } else {
+        // Countdown animation
+        tween = this.tweens.add({
+          targets: progressData,
+          countdown: 0,
+          duration: duration,
+          ease: 'Linear',
+          onUpdate: () => {
+            if (countdownText && countdownText.active) {
+              const currentCountdown = Math.ceil(progressData.countdown)
+              countdownText.setText(currentCountdown.toString())
+            }
+            // Fade text as time runs out
+            if (text && text.active) {
+              const progress = Math.max(0, Math.min(progressData.countdown / (duration / 1000), 1))
+              text.setAlpha(progress)
+            }
+          },
+          onComplete: () => {
+            const indicator = this.powerUpIndicators.get(powerUpKey)
+            if (indicator) {
+              indicator.text.destroy()
+              if (indicator.progressBar) indicator.progressBar.destroy()
+              if (indicator.progressBarBg) indicator.progressBarBg.destroy()
+              if (indicator.countdownText) indicator.countdownText.destroy()
+              this.powerUpIndicators.delete(powerUpKey)
+            }
+          },
+        })
+      }
     } else {
       // Duration 0 means it stays until manually removed (like Super Rock ammo)
       // Keep progress bar full and text visible
@@ -6718,8 +6794,9 @@ export class MainScene extends Phaser.Scene {
     // Store the indicator
     this.powerUpIndicators.set(powerUpKey, {
       text,
-      progressBar,
-      progressBarBg,
+      progressBar: progressBar || undefined,
+      progressBarBg: progressBarBg || undefined,
+      countdownText: countdownText || undefined,
       tween,
     })
   }
@@ -7032,8 +7109,9 @@ export class MainScene extends Phaser.Scene {
     this.powerUpIndicators.forEach((indicator) => {
       if (indicator.tween) indicator.tween.remove()
       indicator.text.destroy()
-      indicator.progressBar.destroy()
-      indicator.progressBarBg.destroy()
+      if (indicator.progressBar) indicator.progressBar.destroy()
+      if (indicator.progressBarBg) indicator.progressBarBg.destroy()
+      if (indicator.countdownText) indicator.countdownText.destroy()
     })
     this.powerUpIndicators.clear()
   }
@@ -7109,7 +7187,7 @@ export class MainScene extends Phaser.Scene {
       
       // Calculate remaining time
       const elapsed = this.time.now - this.autoFireStartTime
-      const duration = 3000
+      const duration = 4000  // Changed from 3000 to 4000 (4 seconds)
       const remaining = Math.max(0, duration - elapsed)
       const progress = remaining / duration
       
@@ -10063,6 +10141,15 @@ export class MainScene extends Phaser.Scene {
           }
         })
         this.tankHitIndicatorTimers.clear()
+        
+          // FIX: Clean up any orphaned tweens and timers
+        try {
+          // Kill any inactive tweens (Phaser doesn't expose getAll, so we'll rely on automatic cleanup)
+          // The tweens manager should handle cleanup automatically, but we'll log for debugging
+          console.log(`[CLEANUP] Level ${nextIndex} transition: Maps cleared, tweens/timers should auto-cleanup`)
+        } catch (err) {
+          console.error('[CLEANUP] Error during level transition cleanup:', err)
+        }
         
         this.spawnLevelWave(this.currentLevelIndex)
         
