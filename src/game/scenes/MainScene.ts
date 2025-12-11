@@ -1498,6 +1498,7 @@ export class MainScene extends Phaser.Scene {
   update(time: number): void {
     // Wrap update in try-catch to prevent crashes on mobile
     try {
+      // Add error boundary for critical operations
       if (this.isPausedForSettings || !this.isGameActive || this.isPausedForDeath) {
         this.updateBossLevel()  // Still update boss level even when paused (for transitions)
         // CRITICAL: Lock player position during death pause to prevent jitter
@@ -1595,6 +1596,10 @@ export class MainScene extends Phaser.Scene {
     this.cleanupBullets()
     this.updatePowerUps()
     this.updateProjectedHitIndicators()
+    // Update ammo display to refresh countdown for LeLe
+    if (this.isAutoFireActive) {
+      this.updateAmmoDisplay()
+    }
     // Update aiming triangles if aiming, otherwise remove them
     if (this.isAiming) {
       this.updateAimingTriangle()
@@ -1626,14 +1631,10 @@ export class MainScene extends Phaser.Scene {
         const powerUpCount = this.powerUps ? this.powerUps.children.size : 0
         const triangleCount = this.aimingTriangles.size + this.projectedHitIndicators.size + this.enemyHitIndicators.size
         const indicatorCount = this.powerUpIndicators.size
-        // Count active tweens and timers (approximate)
-        const tweenCount = (this.tweens as any)._active.length || 0
-        const timerCount = (this.time as any)._pending.length || 0
-        
-        console.log(`[MEMORY DEBUG] Level ${this.currentLevelIndex + 1} | Balls: ${ballCount} | Bullets: ${bulletCount} | PowerUps: ${powerUpCount} | Triangles: ${triangleCount} | Indicators: ${indicatorCount} | Tweens: ${tweenCount} | Timers: ${timerCount}`)
+        console.log(`[MEMORY DEBUG] Level ${this.currentLevelIndex + 1} | Balls: ${ballCount} | Bullets: ${bulletCount} | PowerUps: ${powerUpCount} | Triangles: ${triangleCount} | Indicators: ${indicatorCount}`)
         
         // Warn if counts are getting high
-        if (ballCount > 20 || bulletCount > 30 || powerUpCount > 10 || triangleCount > 20 || tweenCount > 50 || timerCount > 30) {
+        if (ballCount > 20 || bulletCount > 30 || powerUpCount > 10 || triangleCount > 20) {
           console.warn(`[MEMORY WARNING] High object counts detected! This may cause crashes.`)
         }
       } catch (err) {
@@ -1903,8 +1904,21 @@ export class MainScene extends Phaser.Scene {
     }
     } catch (error) {
       // Prevent crashes on mobile by catching errors in update loop
-      // Error in update loop - continue running
+      console.error('[UPDATE ERROR] Error in update loop:', error)
       // Continue running - don't crash the game
+      // Try to recover by cleaning up if possible
+      try {
+        if (this.balls && this.balls.children.size > 50) {
+          console.warn('[RECOVERY] Too many balls, clearing some')
+          this.balls.clear(true, true)
+        }
+        if (this.bullets && this.bullets.children.size > 50) {
+          console.warn('[RECOVERY] Too many bullets, clearing some')
+          this.bullets.clear(true, true)
+        }
+      } catch (recoveryError) {
+        console.error('[RECOVERY ERROR] Failed to recover:', recoveryError)
+      }
     }
   }
 
@@ -6459,10 +6473,16 @@ export class MainScene extends Phaser.Scene {
       body.setBounce(0.3, 0.3)
       body.setCollideWorldBounds(true)
       body.setFrictionX(0.5)  // Add friction to slow down sliding
-      // Widen collision box to make powerups easier to collect (2x wider and taller)
+      // Widen collision box to make powerups easier to collect (use offset to expand hit area without affecting visual position)
       const originalWidth = powerUp.width * powerUp.scaleX
       const originalHeight = powerUp.height * powerUp.scaleY
-      body.setSize(originalWidth * 2, originalHeight * 2)
+      // Expand collision box by 2x but center it using offset so visual position stays the same
+      const expandedWidth = originalWidth * 2
+      const expandedHeight = originalHeight * 2
+      const offsetX = (originalWidth - expandedWidth) / 2
+      const offsetY = (originalHeight - expandedHeight) / 2
+      body.setSize(expandedWidth, expandedHeight)
+      body.setOffset(offsetX, offsetY)
       // Give it a small upward velocity to make it pop out
       body.setVelocityY(-100)
       
@@ -6623,14 +6643,14 @@ export class MainScene extends Phaser.Scene {
     const centerY = worldHeight / 2
     
     this.lifeGainText = this.add.text(centerX, centerY, '+ Poppy', {
-      fontSize: '80px',
+      fontSize: '50px',
       fontFamily: 'MontserratBold',
       color: '#7fb069',  // Bright olive green
     })
     this.lifeGainText.setOrigin(0.5)
     this.lifeGainText.setScrollFactor(0)
     this.lifeGainText.setDepth(20)
-    this.lifeGainText.setScale(2.0)
+    this.lifeGainText.setScale(1.5)
     
     // Animate and fade out
     this.tweens.add({
@@ -6668,17 +6688,34 @@ export class MainScene extends Phaser.Scene {
     const barHeight = 12
     const barSpacing = 20  // Space between bars when multiple power-ups are active
     
-    // Calculate position based on how many power-ups are active
+    // Calculate position based on how many power-ups are active (stack them vertically)
     const activeCount = this.powerUpIndicators.size
-    const isFirst = activeCount === 0
+    const verticalSpacing = 120  // Space between powerup indicators
     
-    // Text position - first one at top, second one below it
-    const textY = padding + 80 + (isFirst ? 0 : 100)  // Second one is 100px below first
-    // Progress bar position - first one at top, second one below it
-    const barY = padding + 20 + (isFirst ? 0 : barSpacing + barHeight)  // Second bar below first
+    // Text position - stack them with proper spacing
+    const textY = padding + 80 + (activeCount * verticalSpacing)
+    // Progress bar position - align with text
+    const barY = padding + 20 + (activeCount * (barSpacing + barHeight + 10))
     
-    // Create text indicator - make "Shield" 150px font
-    const fontSize = label === 'Shield' ? '125px' : '60px'  // Shield is larger
+    // Create text indicator with appropriate font sizes
+    let fontSize: string
+    let scale: number
+    if (label === 'Zaytoon Force') {
+      fontSize = '40px'
+      scale = 1.5
+    } else if (label === 'Dawood\'s Throw') {
+      fontSize = '40px'
+      scale = 1.5
+    } else if (label === 'LeLe Sbeed') {
+      fontSize = '60px'
+      scale = 2.0
+    } else if (label === 'Sabr') {
+      fontSize = '60px'
+      scale = 2.0
+    } else {
+      fontSize = '60px'
+      scale = 2.0
+    }
     const text = this.add.text(worldWidth / 2, textY, label, {
       fontSize: fontSize,
       fontFamily: 'MontserratBold',
@@ -6687,7 +6724,7 @@ export class MainScene extends Phaser.Scene {
     text.setOrigin(0.5, 0)
     text.setScrollFactor(0)
     text.setDepth(20)
-    text.setScale(2.0)  // Large scale to extend beyond screen edges
+    text.setScale(scale)
     
     // Create progress bar background (only if showProgressBar is true)
     let progressBarBg: Phaser.GameObjects.Graphics | undefined
@@ -6697,17 +6734,17 @@ export class MainScene extends Phaser.Scene {
     
     if (showProgressBar) {
       progressBarBg = this.add.graphics()
-      progressBarBg.fillStyle(0x2a2a2a, 1)  // Dark background
+    progressBarBg.fillStyle(0x2a2a2a, 1)  // Dark background
       progressBarBg.fillRect(barX, barY, barWidth, barHeight)
-      progressBarBg.setScrollFactor(0)
-      progressBarBg.setDepth(5)
-      
-      // Create progress bar (light olive green)
+    progressBarBg.setScrollFactor(0)
+    progressBarBg.setDepth(5)
+    
+    // Create progress bar (light olive green)
       progressBar = this.add.graphics()
-      progressBar.fillStyle(0x7fb069, 1)  // Light olive green
-      progressBar.fillRect(barX, barY, barWidth, barHeight)
-      progressBar.setScrollFactor(0)
-      progressBar.setDepth(6)
+    progressBar.fillStyle(0x7fb069, 1)  // Light olive green
+    progressBar.fillRect(barX, barY, barWidth, barHeight)
+    progressBar.setScrollFactor(0)
+    progressBar.setDepth(6)
     } else {
       // Create countdown text instead of progress bar
       countdownText = this.add.text(worldWidth / 2, barY + barHeight / 2, '3', {
@@ -6726,36 +6763,36 @@ export class MainScene extends Phaser.Scene {
     if (duration > 0) {
       if (showProgressBar) {
         // Progress bar animation
-        tween = this.tweens.add({
-          targets: progressData,
-          width: 0,
-          duration: duration,
-          ease: 'Linear',
-          onUpdate: () => {
-            if (progressBar && progressBar.active) {
-              const currentWidth = progressData.width
-              progressBar.clear()
-              progressBar.fillStyle(0x7fb069, 1)
-              const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
-              progressBar.fillRect(barX, barY, clampedWidth, barHeight)
-            }
-            // Fade text as time runs out
-            if (text && text.active) {
-              const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
-              text.setAlpha(progress)
-            }
-          },
-          onComplete: () => {
-            const indicator = this.powerUpIndicators.get(powerUpKey)
-            if (indicator) {
-              indicator.text.destroy()
+      tween = this.tweens.add({
+      targets: progressData,
+      width: 0,
+      duration: duration,
+      ease: 'Linear',
+      onUpdate: () => {
+        if (progressBar && progressBar.active) {
+          const currentWidth = progressData.width
+          progressBar.clear()
+          progressBar.fillStyle(0x7fb069, 1)
+          const clampedWidth = Math.max(0, Math.min(currentWidth, barWidth))
+          progressBar.fillRect(barX, barY, clampedWidth, barHeight)
+        }
+        // Fade text as time runs out
+        if (text && text.active) {
+          const progress = Math.max(0, Math.min(progressData.width / barWidth, 1))
+          text.setAlpha(progress)
+        }
+      },
+      onComplete: () => {
+        const indicator = this.powerUpIndicators.get(powerUpKey)
+        if (indicator) {
+          indicator.text.destroy()
               if (indicator.progressBar) indicator.progressBar.destroy()
               if (indicator.progressBarBg) indicator.progressBarBg.destroy()
               if (indicator.countdownText) indicator.countdownText.destroy()
-              this.powerUpIndicators.delete(powerUpKey)
-            }
-          },
-        })
+          this.powerUpIndicators.delete(powerUpKey)
+        }
+      },
+    })
       } else {
         // Countdown animation
         tween = this.tweens.add({
@@ -7142,74 +7179,25 @@ export class MainScene extends Phaser.Scene {
       }
     }
     
-    // Update infinity text to show ammo count if not normal
+    // Update infinity text to show ammo count or countdown
     const infinityText = this.throwButton.getData('infinityText') as Phaser.GameObjects.Text | undefined
     if (infinityText) {
-      if (nextRockType === 'normal' && !this.isAutoFireActive) {
+      if (this.isAutoFireActive) {
+        // Show countdown for LeLe (3, 2, 1, 0)
+        const elapsed = this.time.now - this.autoFireStartTime
+        const duration = 4000  // 4 seconds
+        const remaining = Math.max(0, duration - elapsed)
+        const countdown = Math.ceil(remaining / 1000)
+        infinityText.setText(countdown.toString())
+        infinityText.setVisible(true)
+      } else if (nextRockType === 'normal') {
         infinityText.setText('∞')
         infinityText.setVisible(true)
       } else {
-        // Show ammo count
+        // Show ammo count for red slingshot
         const totalAmmo = this.rockAmmo.reduce((sum, entry) => sum + entry.ammo, 0)
         infinityText.setText(totalAmmo.toString())
         infinityText.setVisible(true)
-      }
-    }
-    
-    // Update timer bar for auto-fire
-    let timerBar = this.throwButton.getData('timerBar') as Phaser.GameObjects.Graphics | undefined
-    let timerBarBg = this.throwButton.getData('timerBarBg') as Phaser.GameObjects.Graphics | undefined
-    
-    if (this.isAutoFireActive) {
-      // Create timer bar if it doesn't exist
-      if (!timerBarBg) {
-        timerBarBg = this.add.graphics()
-        timerBarBg.setScrollFactor(0)
-        timerBarBg.setDepth(15)
-        this.throwButton.add(timerBarBg)
-        this.throwButton.setData('timerBarBg', timerBarBg)
-      }
-      if (!timerBar) {
-        timerBar = this.add.graphics()
-        timerBar.setScrollFactor(0)
-        timerBar.setDepth(16)
-        this.throwButton.add(timerBar)
-        this.throwButton.setData('timerBar', timerBar)
-      }
-      
-      // Position timer bar below rock icon
-      const rockIconY = rockIcon.y
-      const rockIconHeight = rockIcon.displayHeight
-      const barY = rockIconY + rockIconHeight / 2 + 5  // 5px below rock icon
-      const barWidth = rockIcon.displayWidth * 0.8  // 80% of rock icon width
-      const barHeight = 4
-      const barX = rockIcon.x - barWidth / 2
-      
-      // Calculate remaining time
-      const elapsed = this.time.now - this.autoFireStartTime
-      const duration = 4000  // Changed from 3000 to 4000 (4 seconds)
-      const remaining = Math.max(0, duration - elapsed)
-      const progress = remaining / duration
-      
-      
-      // Draw background
-      timerBarBg.clear()
-      timerBarBg.fillStyle(0x2a2a2a, 1)  // Dark background
-      timerBarBg.fillRect(barX, barY, barWidth, barHeight)
-      
-      // Draw progress bar (green)
-      timerBar.clear()
-      timerBar.fillStyle(0x00ff00, 1)  // Green
-      timerBar.fillRect(barX, barY, barWidth * progress, barHeight)
-    } else {
-      // Remove timer bar when auto-fire is not active
-      if (timerBar) {
-        timerBar.destroy()
-        this.throwButton.setData('timerBar', undefined)
-      }
-      if (timerBarBg) {
-        timerBarBg.destroy()
-        this.throwButton.setData('timerBarBg', undefined)
       }
     }
   }
@@ -7795,6 +7783,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image('powerup-shield', getAssetPath('/assets/bittee/shield.png'))
     this.load.image('powerup-time', getAssetPath('/assets/bittee/time.png'))
     this.load.image('powerup-slingshot-red', getAssetPath('/assets/bittee/slingshot-red.png'))
+    this.load.image('powerup-slingshot-green', getAssetPath('/assets/bittee/slingshot-green.png'))
   }
 
   private loadLevelAssets(): void {
