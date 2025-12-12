@@ -977,8 +977,8 @@ export class MainScene extends Phaser.Scene {
     this.basePlayerScale = targetScale
 
     // Setup collision box (NO OFFSETS - body position is collision position)
-    this.setupPlayerCollider(0)
     const playerBody = this.player.body as Phaser.Physics.Arcade.Body
+    this.setupPlayerCollider(0)
     playerBody.setMaxVelocity(PLAYER_SPEED, 2600)
     playerBody.setDragX(0)
     playerBody.setFriction(1, 0)
@@ -1514,6 +1514,12 @@ export class MainScene extends Phaser.Scene {
     // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
     // CRITICAL: Always position sprite feet at ground level first, then sync body center to match
     // This ensures feet are always at the same position regardless of animation height
+    // #region agent log
+    const beforePostUpdatePlayerX = this.player.x
+    const beforePostUpdatePlayerY = this.player.y
+    const beforePostUpdateBodyX = body.x
+    const beforePostUpdateBodyY = body.y
+    // #endregion
     this.player.x = body.x
     this.player.y = this.groundYPosition  // Feet always at ground level
     
@@ -1526,6 +1532,15 @@ export class MainScene extends Phaser.Scene {
     if (Math.abs(body.y - actualBodyCenterY) > 0.01) {
       body.y = actualBodyCenterY  // Sync body to match sprite feet position
     }
+    // #region agent log
+    const positionChanged = Math.abs(beforePostUpdatePlayerX - this.player.x) > 0.1 || 
+                            Math.abs(beforePostUpdatePlayerY - this.player.y) > 0.1 ||
+                            Math.abs(beforePostUpdateBodyX - body.x) > 0.1 ||
+                            Math.abs(beforePostUpdateBodyY - body.y) > 0.1
+    if (positionChanged && this.isTaunting) {
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1518',message:'[TAUNT] postUpdate position change during taunt',data:{beforePlayerX:beforePostUpdatePlayerX,afterPlayerX:this.player.x,beforePlayerY:beforePostUpdatePlayerY,afterPlayerY:this.player.y,beforeBodyX:beforePostUpdateBodyX,afterBodyX:body.x,beforeBodyY:beforePostUpdateBodyY,afterBodyY:body.y,groundY:this.groundYPosition,bodyHeight:body.height,displayHeight:this.player.displayHeight,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    }
+    // #endregion
   }
 
   update(time: number): void {
@@ -1724,22 +1739,7 @@ export class MainScene extends Phaser.Scene {
       // Clean up inactive/destroyed objects
       this.cleanupInactiveObjects()
       
-      // Debug: Log memory usage and object counts
-      try {
-        const ballCount = this.balls ? this.balls.children.size : 0
-        const bulletCount = this.bullets ? this.bullets.children.size : 0
-        const powerUpCount = this.powerUps ? this.powerUps.children.size : 0
-        const triangleCount = this.aimingTriangles.size + this.projectedHitIndicators.size + this.enemyHitIndicators.size
-        const indicatorCount = this.powerUpIndicators.size
-        console.log(`[MEMORY DEBUG] Level ${this.currentLevelIndex + 1} | Balls: ${ballCount} | Bullets: ${bulletCount} | PowerUps: ${powerUpCount} | Triangles: ${triangleCount} | Indicators: ${indicatorCount}`)
-        
-        // Warn if counts are getting high
-        if (ballCount > 20 || bulletCount > 30 || powerUpCount > 10 || triangleCount > 20) {
-          console.warn(`[MEMORY WARNING] High object counts detected! This may cause crashes.`)
-        }
-      } catch (err) {
-        console.error('[MEMORY DEBUG] Error logging memory stats:', err)
-      }
+      // Memory tracking removed - no longer needed
     }
     
     
@@ -5306,37 +5306,8 @@ export class MainScene extends Phaser.Scene {
           if (isOnGround && !atLeftEdge) {
             // Simple check like throwing: only block if in special states that should override running
             if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
-              // #region agent log
-              const beforeAnim = this.player.anims.currentAnim?.key
-              const beforePlayerY = this.player.y
-              const beforeBodyY = body?.y
-              const beforeBodyHeight = body?.height
-              const beforeDisplayHeight = this.player.displayHeight
-              // #endregion
-              
               // Directly play animation like throwing does - no complex currentAnim checks
-              // #region agent log
-              const beforeAnimsPlayY = this.player.y
-              const beforeAnimsPlayBodyY = body.y
-              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5365',message:'[DEBUG] BEFORE anims.play bittee-run-left',data:{beforePlayerY:beforeAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-              // #endregion
               this.player.anims.play('bittee-run-left', true)
-              // #region agent log
-              const afterAnimsPlayY = this.player.y
-              const afterAnimsPlayBodyY = body.y
-              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5365',message:'[DEBUG] AFTER anims.play bittee-run-left',data:{beforePlayerY:beforeAnimsPlayY,afterPlayerY:afterAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,afterBodyY:afterAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-              // #endregion
-
-              // #region agent log
-              console.log('[DEBUG] running LEFT animation started', {
-                beforeAnim, afterAnim: this.player.anims.currentAnim?.key,
-                beforePlayerY, afterPlayerY: this.player.y,
-                beforeBodyY, afterBodyY: body?.y,
-                beforeBodyHeight, afterBodyHeight: body?.height,
-                beforeDisplayHeight, afterDisplayHeight: this.player.displayHeight,
-                groundY: this.groundYPosition
-              })
-              // #endregion
               
               // Ensure body is enabled and movable for running
               if (body) {
@@ -5376,37 +5347,8 @@ export class MainScene extends Phaser.Scene {
           if (isOnGround && !atRightEdge) {
             // Simple check like throwing: only block if in special states that should override running
             if (!this.isJumping && !this.isThrowing && !this.isTaunting && !this.isCrouching) {
-              // #region agent log
-              const beforeAnim = this.player.anims.currentAnim?.key
-              const beforePlayerY = this.player.y
-              const beforeBodyY = body?.y
-              const beforeBodyHeight = body?.height
-              const beforeDisplayHeight = this.player.displayHeight
-              // #endregion
-              
               // Directly play animation like throwing does - no complex currentAnim checks
-              // #region agent log
-              const beforeAnimsPlayY = this.player.y
-              const beforeAnimsPlayBodyY = body.y
-              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5425',message:'[DEBUG] BEFORE anims.play bittee-run-right',data:{beforePlayerY:beforeAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-              // #endregion
               this.player.anims.play('bittee-run-right', true)
-              // #region agent log
-              const afterAnimsPlayY = this.player.y
-              const afterAnimsPlayBodyY = body.y
-              fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5425',message:'[DEBUG] AFTER anims.play bittee-run-right',data:{beforePlayerY:beforeAnimsPlayY,afterPlayerY:afterAnimsPlayY,beforeBodyY:beforeAnimsPlayBodyY,afterBodyY:afterAnimsPlayBodyY,bodyHeight:body.height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-              // #endregion
-
-              // #region agent log
-              console.log('[DEBUG] running RIGHT animation started', {
-                beforeAnim, afterAnim: this.player.anims.currentAnim?.key,
-                beforePlayerY, afterPlayerY: this.player.y,
-                beforeBodyY, afterBodyY: body?.y,
-                beforeBodyHeight, afterBodyHeight: body?.height,
-                beforeDisplayHeight, afterDisplayHeight: this.player.displayHeight,
-                groundY: this.groundYPosition
-              })
-              // #endregion
               
               // Ensure body is enabled and movable for running
               if (body) {
@@ -8199,14 +8141,30 @@ export class MainScene extends Phaser.Scene {
     
     // #region agent log
     const beforeBodyHeight = playerBody.height
+    const beforePlayerX = this.player.x
     const beforePlayerY = this.player.y
+    const beforeBodyX = playerBody.x
     const beforeBodyY = playerBody.y
+    const beforeDisplayHeight = this.player.displayHeight
+    const wasTaunting = this.isTaunting
     // #endregion
     // Set body size and offset
     playerBody.setSize(bodyWidth, bodyHeight)
     playerBody.setOffset(0, 0)
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8245',message:'[DEBUG] setupPlayerCollider body size changed',data:{beforeBodyHeight,afterBodyHeight:playerBody.height,bodyHeight,bodyWidth,beforePlayerY,afterPlayerY:this.player.y,beforeBodyY,afterBodyY:playerBody.y,displayHeight:this.player.displayHeight,currentAnim:this.player.anims.currentAnim?.key,isJumping:this.isJumping,isTaunting:this.isTaunting,isCrouching:this.isCrouching},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    const afterBodyHeight = playerBody.height
+    const afterPlayerX = this.player.x
+    const afterPlayerY = this.player.y
+    const afterBodyX = playerBody.x
+    const afterBodyY = playerBody.y
+    const afterDisplayHeight = this.player.displayHeight
+    const positionChanged = Math.abs(beforePlayerX - afterPlayerX) > 0.1 || 
+                            Math.abs(beforePlayerY - afterPlayerY) > 0.1 ||
+                            Math.abs(beforeBodyX - afterBodyX) > 0.1 ||
+                            Math.abs(beforeBodyY - afterBodyY) > 0.1
+    if (wasTaunting && positionChanged) {
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8152',message:'[TAUNT] setupPlayerCollider position change',data:{beforePlayerX,afterPlayerX,beforePlayerY,afterPlayerY,beforeBodyX,afterBodyX,beforeBodyY,afterBodyY,beforeBodyHeight,afterBodyHeight,beforeDisplayHeight,afterDisplayHeight,groundY:this.groundYPosition,bodyHeight,bodyWidth,currentAnim:this.player.anims.currentAnim?.key,isCrouching:this.isCrouching,isJumping:this.isJumping,isTaunting:this.isTaunting},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    }
     // #endregion
     
     // Position body at ground level (only if not jumping and not taunting)
@@ -8349,6 +8307,16 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
+    // #region agent log
+    const beforeCancelPlayerX = this.player.x
+    const beforeCancelPlayerY = this.player.y
+    const beforeCancelBodyX = this.player.body ? (this.player.body as Phaser.Physics.Arcade.Body).x : 0
+    const beforeCancelBodyY = this.player.body ? (this.player.body as Phaser.Physics.Arcade.Body).y : 0
+    const beforeCancelBodyHeight = this.player.body ? (this.player.body as Phaser.Physics.Arcade.Body).height : 0
+    const beforeCancelDisplayHeight = this.player.displayHeight
+    const beforeCancelAnim = this.player.anims.currentAnim?.key
+    // #endregion
+
     this.isTaunting = false
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
     const onGround = body ? this.isPlayerGrounded(body) : false
@@ -8365,7 +8333,21 @@ export class MainScene extends Phaser.Scene {
     // FIX: Set texture to stand before setupPlayerCollider to ensure correct body.height calculation
     this.player.setTexture(BITTEE_SPRITES.stand.key)
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
+    
+    // #region agent log
+    const afterTextureChangePlayerX = this.player.x
+    const afterTextureChangePlayerY = this.player.y
+    // #endregion
+    
     this.setupPlayerCollider(0)
+    
+    // #region agent log
+    const afterSetupColliderPlayerX = this.player.x
+    const afterSetupColliderPlayerY = this.player.y
+    const afterSetupColliderBodyX = body?.x || 0
+    const afterSetupColliderBodyY = body?.y || 0
+    const afterSetupColliderBodyHeight = body?.height || 0
+    // #endregion
     
     // FIX: Set position based on whether on ground or in air
     if (onGround && body) {
@@ -8382,12 +8364,27 @@ export class MainScene extends Phaser.Scene {
     }
 
     // #region agent log
-    console.log('[DEBUG] cancelTaunt completed', {onGround, playerY: this.player.y, bodyY: body?.y, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+    const afterPositionSetPlayerX = this.player.x
+    const afterPositionSetPlayerY = this.player.y
+    const afterPositionSetBodyX = body?.x || 0
+    const afterPositionSetBodyY = body?.y || 0
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8324',message:'[TAUNT] cancelTaunt - position tracking',data:{beforeCancelPlayerX,afterTextureChangePlayerX,afterSetupColliderPlayerX,afterPositionSetPlayerX,beforeCancelPlayerY,afterTextureChangePlayerY,afterSetupColliderPlayerY,afterPositionSetPlayerY,beforeCancelBodyX,afterSetupColliderBodyX,afterPositionSetBodyX,beforeCancelBodyY,afterSetupColliderBodyY,afterPositionSetBodyY,beforeCancelBodyHeight,afterSetupColliderBodyHeight,groundY:this.groundYPosition,onGround,beforeCancelDisplayHeight,displayHeight:this.player.displayHeight,beforeCancelAnim,currentAnim:this.player.anims.currentAnim?.key,playIdle},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
     // #endregion
 
     if (playIdle) {
       this.setIdlePose(true)
     }
+    
+    // #region agent log
+    const afterSetIdlePosePlayerX = this.player.x
+    const afterSetIdlePosePlayerY = this.player.y
+    const afterSetIdlePoseBodyX = body?.x || 0
+    const afterSetIdlePoseBodyY = body?.y || 0
+    if (Math.abs(afterPositionSetPlayerX - afterSetIdlePosePlayerX) > 0.1 || 
+        Math.abs(afterPositionSetPlayerY - afterSetIdlePosePlayerY) > 0.1) {
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8363',message:'[TAUNT] cancelTaunt - setIdlePose changed position',data:{afterPositionSetPlayerX,afterSetIdlePosePlayerX,afterPositionSetPlayerY,afterSetIdlePosePlayerY,afterPositionSetBodyX,afterSetIdlePoseBodyX,afterPositionSetBodyY,afterSetIdlePoseBodyY,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    }
+    // #endregion
   }
 
   private handleTaunt(): void {
@@ -10452,6 +10449,16 @@ export class MainScene extends Phaser.Scene {
 
     // If already taunting, toggle it off
     if (this.isTaunting) {
+      // #region agent log
+      const beforeToggleOffPlayerX = this.player.x
+      const beforeToggleOffPlayerY = this.player.y
+      const beforeToggleOffBodyX = body?.x || 0
+      const beforeToggleOffBodyY = body?.y || 0
+      const beforeToggleOffBodyHeight = body?.height || 0
+      const beforeToggleOffDisplayHeight = this.player.displayHeight
+      const beforeToggleOffAnim = this.player.anims.currentAnim?.key
+      // #endregion
+      
       // RESTORED: Simple inline approach from working version (e9cd8ff)
       // This was working before - handle everything inline instead of calling cancelTaunt()
       this.isTaunting = false
@@ -10468,6 +10475,11 @@ export class MainScene extends Phaser.Scene {
       this.player.anims.stop()
       // Set texture to stand first
       this.player.setTexture(BITTEE_SPRITES.stand.key)
+      
+      // #region agent log
+      const afterTextureChangePlayerX = this.player.x
+      const afterTextureChangePlayerY = this.player.y
+      // #endregion
       
       if (onGround) {
         // On ground: set feet to ground level
@@ -10488,20 +10500,48 @@ export class MainScene extends Phaser.Scene {
         }
       }
       
+      // #region agent log
+      const afterPositionSetPlayerX = this.player.x
+      const afterPositionSetPlayerY = this.player.y
+      const afterPositionSetBodyX = body?.x || 0
+      const afterPositionSetBodyY = body?.y || 0
+      // #endregion
+      
       // Preserve X position
       this.player.setX(currentX)
       if (body) {
         body.x = currentX
       }
       
+      // #region agent log
+      const afterXPreservePlayerX = this.player.x
+      const afterXPreserveBodyX = body?.x || 0
+      // #endregion
+      
       // Setup collider after position is set
       this.setupPlayerCollider(0)
+      
+      // #region agent log
+      const afterSetupColliderPlayerX = this.player.x
+      const afterSetupColliderPlayerY = this.player.y
+      const afterSetupColliderBodyX = body?.x || 0
+      const afterSetupColliderBodyY = body?.y || 0
+      const afterSetupColliderBodyHeight = body?.height || 0
+      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10428',message:'[TAUNT] toggle OFF - position tracking',data:{beforeToggleOffPlayerX,afterTextureChangePlayerX,afterPositionSetPlayerX,afterXPreservePlayerX,afterSetupColliderPlayerX,beforeToggleOffPlayerY,afterTextureChangePlayerY,afterPositionSetPlayerY,afterSetupColliderPlayerY,beforeToggleOffBodyX,afterPositionSetBodyX,afterXPreserveBodyX,afterSetupColliderBodyX,beforeToggleOffBodyY,afterPositionSetBodyY,afterSetupColliderBodyY,beforeToggleOffBodyHeight,afterSetupColliderBodyHeight,groundY:this.groundYPosition,onGround,currentX,beforeToggleOffDisplayHeight,displayHeight:this.player.displayHeight,beforeToggleOffAnim,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       
       // Transition to idle pose
       this.setIdlePose(true)
       
       // #region agent log
-      console.log('[DEBUG] exiting taunt', {currentX, onGround, playerY: this.player.y, bodyY: body?.y, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+      const afterSetIdlePosePlayerX = this.player.x
+      const afterSetIdlePosePlayerY = this.player.y
+      const afterSetIdlePoseBodyX = body?.x || 0
+      const afterSetIdlePoseBodyY = body?.y || 0
+      if (Math.abs(afterSetupColliderPlayerX - afterSetIdlePosePlayerX) > 0.1 || 
+          Math.abs(afterSetupColliderPlayerY - afterSetIdlePosePlayerY) > 0.1) {
+        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10475',message:'[TAUNT] toggle OFF - setIdlePose changed position',data:{afterSetupColliderPlayerX,afterSetIdlePosePlayerX,afterSetupColliderPlayerY,afterSetIdlePosePlayerY,afterSetupColliderBodyX,afterSetIdlePoseBodyX,afterSetupColliderBodyY,afterSetIdlePoseBodyY,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+      }
       // #endregion
       
       return
@@ -10520,6 +10560,16 @@ export class MainScene extends Phaser.Scene {
       return
     }
     
+    // #region agent log
+    const beforeToggleOnPlayerX = this.player.x
+    const beforeToggleOnPlayerY = this.player.y
+    const beforeToggleOnBodyX = body?.x || 0
+    const beforeToggleOnBodyY = body?.y || 0
+    const beforeToggleOnBodyHeight = body?.height || 0
+    const beforeToggleOnDisplayHeight = this.player.displayHeight
+    const beforeToggleOnAnim = this.player.anims.currentAnim?.key
+    // #endregion
+    
     // Directly set taunt state and play animation like throwing does
     this.isTaunting = true
     const currentX = this.player.x
@@ -10535,7 +10585,22 @@ export class MainScene extends Phaser.Scene {
     }
     
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
+    
+    // #region agent log
+    const afterScaleChangePlayerX = this.player.x
+    const afterScaleChangePlayerY = this.player.y
+    // #endregion
+    
     this.setupPlayerCollider(0)
+    
+    // #region agent log
+    const afterSetupColliderPlayerX = this.player.x
+    const afterSetupColliderPlayerY = this.player.y
+    const afterSetupColliderBodyX = body?.x || 0
+    const afterSetupColliderBodyY = body?.y || 0
+    const afterSetupColliderBodyHeight = body?.height || 0
+    // #endregion
+    
     // Ensure Bittee is positioned correctly on ground for taunt
     this.player.setY(this.groundYPosition)  // Feet at ground level
     this.player.setX(currentX)  // Preserve X position
@@ -10548,8 +10613,13 @@ export class MainScene extends Phaser.Scene {
     }
     
     // #region agent log
-    console.log('[DEBUG] entering taunt', {currentX, playerY: this.player.y, bodyY: body?.y, bodyHeight: body?.height, displayHeight: this.player.displayHeight})
+    const afterPositionSetPlayerX = this.player.x
+    const afterPositionSetPlayerY = this.player.y
+    const afterPositionSetBodyX = body?.x || 0
+    const afterPositionSetBodyY = body?.y || 0
+    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10495',message:'[TAUNT] toggle ON - position tracking',data:{beforeToggleOnPlayerX,afterScaleChangePlayerX,afterSetupColliderPlayerX,afterPositionSetPlayerX,beforeToggleOnPlayerY,afterScaleChangePlayerY,afterSetupColliderPlayerY,afterPositionSetPlayerY,beforeToggleOnBodyX,afterSetupColliderBodyX,afterPositionSetBodyX,beforeToggleOnBodyY,afterSetupColliderBodyY,afterPositionSetBodyY,beforeToggleOnBodyHeight,afterSetupColliderBodyHeight,groundY:this.groundYPosition,currentX,beforeToggleOnDisplayHeight,displayHeight:this.player.displayHeight,beforeToggleOnAnim,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
     // #endregion
+    
     // Directly play taunt like throwing does - stop animation and set texture
     this.player.setFlipX(false)
     // Toggle between taunt and taunt2 each time taunt is triggered
