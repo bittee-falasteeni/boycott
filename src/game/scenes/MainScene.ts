@@ -1445,9 +1445,6 @@ export class MainScene extends Phaser.Scene {
    * Called via physics world 'worldstep' event
    */
   postUpdate(): void {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1447',message:'[DEBUG] postUpdate ENTRY',data:{isJumping:this.isJumping,isTaunting:this.isTaunting,isCrouching:this.isCrouching,currentAnim:this.player.anims.currentAnim ? this.player.anims.currentAnim.key : 'none',playerY:this.player.y,bodyY:(this.player.body as Phaser.Physics.Arcade.Body).y,bodyHeight:(this.player.body as Phaser.Physics.Arcade.Body).height,displayHeight:this.player.displayHeight,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
     // Simple sprite-body sync with ground locking
     if (!this.isGameActive || this.isPausedForSettings || this.isPausedForDeath) {
       return
@@ -1479,10 +1476,6 @@ export class MainScene extends Phaser.Scene {
     // Calculate body center based on current body.height (which may have changed from setupPlayerCollider)
     const bodyCenterY = bodyBottomY - (body.height / 2)
     
-    // #region agent log
-    console.log('[DEBUG] bodyCenterY calc', {bodyBottomY, bodyHeight: body.height, bodyCenterY, groundY: this.groundYPosition, displayHeight: this.player.displayHeight, currentAnim: this.player.anims.currentAnim?.key, playerY: this.player.y})
-    // #endregion
-    
     if (this.isCrouching) {
       // During crouch: body is disabled, just position it
       // Preserve X position from when crouch started
@@ -1500,10 +1493,6 @@ export class MainScene extends Phaser.Scene {
     const currentAnim = this.player.anims.currentAnim?.key
     const isRunning = currentAnim === 'bittee-run-left' || currentAnim === 'bittee-run-right'
     const isIdle = (currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand') && !this.isThrowing && !this.isTaunting && !this.isCrouching
-    
-    // #region agent log
-    console.log('[DEBUG] postUpdate state', {currentAnim, isRunning, isIdle, bodyY: body.y, bodyHeight: body.height, bodyVelY: body.velocity.y, bodyAccelY: body.acceleration.y, playerY: this.player.y, groundY: this.groundYPosition, displayHeight: this.player.displayHeight})
-    // #endregion
     
     // FIX: Set body position ONCE to prevent wiggle from multiple assignments
     // Always lock Y position to ground - use single calculation
@@ -1525,15 +1514,8 @@ export class MainScene extends Phaser.Scene {
     // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
     // CRITICAL: Always position sprite feet at ground level first, then sync body center to match
     // This ensures feet are always at the same position regardless of animation height
-    // #region agent log
-    const beforeSyncPlayerY = this.player.y
-    const beforeSyncBodyY = body.y
-    // #endregion
     this.player.x = body.x
     this.player.y = this.groundYPosition  // Feet always at ground level
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1526',message:'[DEBUG] postUpdate SET player.y to groundYPosition',data:{beforePlayerY:beforeSyncPlayerY,afterPlayerY:this.player.y,groundY:this.groundYPosition,beforeBodyY:beforeSyncBodyY,currentAnim:this.player.anims.currentAnim?.key,displayHeight:this.player.displayHeight,bodyHeight:body.height},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     
     // Recalculate body center based on current body.height to keep body bottom at ground
     // This accounts for different body heights from different animation displayHeights
@@ -1544,10 +1526,6 @@ export class MainScene extends Phaser.Scene {
     if (Math.abs(body.y - actualBodyCenterY) > 0.01) {
       body.y = actualBodyCenterY  // Sync body to match sprite feet position
     }
-    
-    // #region agent log
-    console.log('[DEBUG] final sync', {playerY: this.player.y, groundY: this.groundYPosition, bodyY: body.y, bodyCenterY, actualBodyCenterY, bodyHeight: body.height, displayHeight: this.player.displayHeight, currentAnim, feetOffset: this.player.y - this.groundYPosition})
-    // #endregion
   }
 
   update(time: number): void {
@@ -4990,14 +4968,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   private setIdlePose(force = false): void {
-    // #region agent log
-    const beforeAnim = this.player.anims.currentAnim?.key
-    const beforePlayerY = this.player.y
-    const body = this.player.body as Phaser.Physics.Arcade.Body | null
-    const beforeBodyY = body?.y
-    const beforeBodyHeight = body?.height
-    const beforeDisplayHeight = this.player.displayHeight
-    // #endregion
     // Don't set idle pose if in special states (except allow it to override if force is true)
     if (!force && (this.isThrowing || this.isTaunting || this.isCrouching || this.isJumping || this.isAiming)) {
       return
@@ -5010,7 +4980,7 @@ export class MainScene extends Phaser.Scene {
     if (!force && isJumpAnim) {
       return
     }
-    // Always execute if force is true, or if we need to transition from non-idle state
+    // Only execute if we need to transition from non-idle state (skip if already idle)
     if (force || (currentAnim !== idleKey && currentAnim !== 'bittee-run-left' && currentAnim !== 'bittee-run-right' && currentAnim !== 'bittee-crouch')) {
       // Stop any running animation first to prevent frame conflicts
       this.player.anims.stop()
@@ -5023,29 +4993,12 @@ export class MainScene extends Phaser.Scene {
       // postUpdate() will handle positioning consistently for all states
       const body = this.player.body as Phaser.Physics.Arcade.Body | null
       if (body && this.isPlayerGrounded(body) && !this.isCrouching) {
-        // #region agent log
-        const beforeSetY = this.player.y
-        const groundFeetY = this.groundYPosition
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:5017',message:'[DEBUG] setIdlePose SKIPPED setY (postUpdate handles it)',data:{beforePlayerY:beforeSetY,groundFeetY,groundY:this.groundYPosition,bodyY:body.y,bodyHeight:body.height,displayHeight:this.player.displayHeight,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         // REMOVED: this.player.setY(groundFeetY) - postUpdate() handles position
         // Body position will be set in postUpdate() - don't interfere here
       }
       this.player.setFlipX(false)
       // Now play idle animation
       this.player.anims.play(idleKey, true)
-      
-      // #region agent log
-      console.log('[DEBUG] setIdlePose completed', {
-        beforeAnim, afterAnim: this.player.anims.currentAnim?.key,
-        beforePlayerY, afterPlayerY: this.player.y,
-        beforeBodyY, afterBodyY: body?.y,
-        beforeBodyHeight, afterBodyHeight: body?.height,
-        beforeDisplayHeight, afterDisplayHeight: this.player.displayHeight,
-        groundY: this.groundYPosition,
-        force
-      })
-      // #endregion
     }
   }
 
@@ -5100,8 +5053,6 @@ export class MainScene extends Phaser.Scene {
       const body = this.player.body as Phaser.Physics.Arcade.Body
       // Restore X position from when crouch started
       const restoreX = this.crouchStartX
-      // Only move Y to ground if he's on the ground, otherwise keep his current Y position (if in air)
-      const isOnGround = body && (body.blocked.down || body.touching.down || body.onFloor())
       
       // Reset all state flags
       this.isThrowing = false
@@ -5471,17 +5422,9 @@ export class MainScene extends Phaser.Scene {
             }
           }
         }
-    } else {
-      // Not moving - stop horizontal velocity
-      // #region agent log
-      const beforeStopAnim = this.player.anims.currentAnim?.key
-      const beforeStopPlayerY = this.player.y
-      const beforeStopBodyY = body?.y
-      const beforeStopBodyHeight = body?.height
-      const beforeStopDisplayHeight = this.player.displayHeight
-      // #endregion
-      
-      this.player.setVelocityX(0)
+      } else {
+        // Not moving - stop horizontal velocity
+        this.player.setVelocityX(0)
         if (body) {
           body.setVelocityX(0)
         }
@@ -5490,43 +5433,23 @@ export class MainScene extends Phaser.Scene {
           this.stopSound('bittee-run-sound')
           this.runSoundPlaying = false
         }
-        // Only set idle pose when on ground (don't interrupt jump animations)
-        if (isOnGround && !this.isJumping) {
+        // Only set idle pose when on ground and not already idle (don't interrupt jump animations)
+        const currentAnim = this.player.anims.currentAnim?.key
+        const isIdleAnim = currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand'
+        if (isOnGround && !this.isJumping && !isIdleAnim) {
           this.setIdlePose(true)
         }
-        
-        // #region agent log
-        console.log('[DEBUG] movement stopped (no keys pressed)', {
-          beforeStopAnim, afterStopAnim: this.player.anims.currentAnim?.key,
-          beforeStopPlayerY, afterStopPlayerY: this.player.y,
-          beforeStopBodyY, afterStopBodyY: body?.y,
-          beforeStopBodyHeight, afterStopBodyHeight: body?.height,
-          beforeStopDisplayHeight, afterStopDisplayHeight: this.player.displayHeight,
-          groundY: this.groundYPosition,
-          isOnGround,
-          isJumping: this.isJumping
-        })
-        // #endregion
       
-      // If in idle pose, just ensure body is enabled - postUpdate() handles positioning
-      const currentAnim = this.player.anims.currentAnim?.key
-      const isIdleAnim = currentAnim === 'bittee-idle' || currentAnim === 'bittee-stand'
-      if (isIdleAnim && body && this.isPlayerGrounded(body) && !this.isCrouching && !this.isJumping) {
-        // Just ensure body is enabled - postUpdate() will position it correctly
-        if (!body.enable) {
-          body.enable = true
-        }
-        body.setImmovable(false)  // Allow postUpdate to position it
-        body.setAllowGravity(true)  // Keep enabled for ground detection
-        body.setVelocityX(0)
-        body.setVelocityY(0)
-        }
-        // When we release movement on the ground and we're not jumping,
-        // always return to the default standing idle pose instead of
-        // leaving Bittee frozen on a run frame.
-        if (isOnGround && !this.isJumping && !this.isCrouching) {
-          this.player.anims.stop()
-          this.setIdlePose(true)
+        // If in idle pose, just ensure body is enabled - postUpdate() handles positioning
+        if (isIdleAnim && body && this.isPlayerGrounded(body) && !this.isCrouching && !this.isJumping) {
+          // Just ensure body is enabled - postUpdate() will position it correctly
+          if (!body.enable) {
+            body.enable = true
+          }
+          body.setImmovable(false)  // Allow postUpdate to position it
+          body.setAllowGravity(true)  // Keep enabled for ground detection
+          body.setVelocityX(0)
+          body.setVelocityY(0)
         }
       }
     }
