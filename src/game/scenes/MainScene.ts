@@ -1464,31 +1464,8 @@ export class MainScene extends Phaser.Scene {
 
     // FIX: If taunting, preserve position completely - taunt code handles its own positioning
     if (this.isTaunting) {
-      // #region agent log
-      // Log if postUpdate is somehow changing positions during taunt (shouldn't happen)
-      const beforePostUpdatePlayerX = this.player.x
-      const beforePostUpdatePlayerY = this.player.y
-      const beforePostUpdateBodyX = body.x
-      const beforePostUpdateBodyY = body.y
-      // #endregion
-      
       // Don't change anything - taunt code has already set positions correctly
       // Body and sprite should already be in sync from taunt activation/deactivation
-      
-      // #region agent log
-      // Verify positions didn't change (they shouldn't since we return early)
-      const afterPostUpdatePlayerX = this.player.x
-      const afterPostUpdatePlayerY = this.player.y
-      const afterPostUpdateBodyX = body.x
-      const afterPostUpdateBodyY = body.y
-      if (Math.abs(beforePostUpdatePlayerX - afterPostUpdatePlayerX) > 0.01 ||
-          Math.abs(beforePostUpdatePlayerY - afterPostUpdatePlayerY) > 0.01 ||
-          Math.abs(beforePostUpdateBodyX - afterPostUpdateBodyX) > 0.01 ||
-          Math.abs(beforePostUpdateBodyY - afterPostUpdateBodyY) > 0.01) {
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1466',message:'[TAUNT] postUpdate called during taunt - position changed!',data:{beforePlayerX:beforePostUpdatePlayerX,afterPlayerX:afterPostUpdatePlayerX,beforePlayerY:beforePostUpdatePlayerY,afterPlayerY:afterPostUpdatePlayerY,beforeBodyX:beforePostUpdateBodyX,afterBodyX:afterPostUpdateBodyX,beforeBodyY:beforePostUpdateBodyY,afterBodyY:afterPostUpdateBodyY,groundY:this.groundYPosition,bodyHeight:body.height},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      }
-      // #endregion
-      
       return
     }
 
@@ -1537,12 +1514,6 @@ export class MainScene extends Phaser.Scene {
     // Player sprite origin is (0.5, 1) so player.y is the bottom (feet position)
     // CRITICAL: Always position sprite feet at ground level first, then sync body center to match
     // This ensures feet are always at the same position regardless of animation height
-    // #region agent log
-    const beforePostUpdatePlayerX = this.player.x
-    const beforePostUpdatePlayerY = this.player.y
-    const beforePostUpdateBodyX = body.x
-    const beforePostUpdateBodyY = body.y
-    // #endregion
     this.player.x = body.x
     this.player.y = this.groundYPosition  // Feet always at ground level
     
@@ -1555,15 +1526,6 @@ export class MainScene extends Phaser.Scene {
     if (Math.abs(body.y - actualBodyCenterY) > 0.01) {
       body.y = actualBodyCenterY  // Sync body to match sprite feet position
     }
-    // #region agent log
-    const positionChanged = Math.abs(beforePostUpdatePlayerX - this.player.x) > 0.1 || 
-                            Math.abs(beforePostUpdatePlayerY - this.player.y) > 0.1 ||
-                            Math.abs(beforePostUpdateBodyX - body.x) > 0.1 ||
-                            Math.abs(beforePostUpdateBodyY - body.y) > 0.1
-    if (positionChanged && this.isTaunting) {
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:1518',message:'[TAUNT] postUpdate position change during taunt',data:{beforePlayerX:beforePostUpdatePlayerX,afterPlayerX:this.player.x,beforePlayerY:beforePostUpdatePlayerY,afterPlayerY:this.player.y,beforeBodyX:beforePostUpdateBodyX,afterBodyX:body.x,beforeBodyY:beforePostUpdateBodyY,afterBodyY:body.y,groundY:this.groundYPosition,bodyHeight:body.height,displayHeight:this.player.displayHeight,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    }
-    // #endregion
   }
 
   update(time: number): void {
@@ -8162,21 +8124,13 @@ export class MainScene extends Phaser.Scene {
     const HEIGHT_MULTIPLIER = 4.5
     const bodyHeight = (currentHeight - 15) * HEIGHT_MULTIPLIER
     
-    // #region agent log
-    const beforeBodyHeight = playerBody.height
-    const beforePlayerX = this.player.x
-    const beforePlayerY = this.player.y
-    const beforeBodyX = playerBody.x
-    const beforeBodyY = playerBody.y
-    const beforeDisplayHeight = this.player.displayHeight
-    const wasTaunting = this.isTaunting
-    // #endregion
-    
     // CRITICAL: Preserve positions before changing body size (setupPlayerCollider can cause position changes)
+    const wasTaunting = this.isTaunting
     const preservePlayerX = this.player.x
     const preservePlayerY = this.player.y
     const preserveBodyX = playerBody.x
     const preserveBodyY = playerBody.y
+    const beforeBodyHeight = playerBody.height
     
     // Calculate body bottom position before size change (to maintain it after)
     const bodyBottomBefore = preserveBodyY + (beforeBodyHeight / 2)
@@ -8185,12 +8139,12 @@ export class MainScene extends Phaser.Scene {
     playerBody.setSize(bodyWidth, bodyHeight)
     playerBody.setOffset(0, 0)
     
-    // Get after values for comparison
+    // Get after values
     const afterBodyHeight = playerBody.height
     
     // CRITICAL: Restore positions after body size change to prevent glitching
     if (wasTaunting || this.isTaunting) {
-      // During taunt, preserve X and Y positions
+      // During taunt transitions, preserve X and Y positions
       // For Y: if body height changed, recalculate body.y to keep bottom at same position
       this.player.x = preservePlayerX
       this.player.y = preservePlayerY
@@ -8207,25 +8161,6 @@ export class MainScene extends Phaser.Scene {
         playerBody.y = preserveBodyY
       }
     }
-    // #region agent log
-    const afterPlayerX = this.player.x
-    const afterPlayerY = this.player.y
-    const afterBodyX = playerBody.x
-    const afterBodyY = playerBody.y
-    const afterDisplayHeight = this.player.displayHeight
-    const bodyBottomAfter = afterBodyY + (afterBodyHeight / 2)
-    const positionChanged = Math.abs(beforePlayerX - afterPlayerX) > 0.1 || 
-                            Math.abs(beforePlayerY - afterPlayerY) > 0.1 ||
-                            Math.abs(beforeBodyX - afterBodyX) > 0.1 ||
-                            Math.abs(beforeBodyY - afterBodyY) > 0.1
-    const bodyHeightChanged = Math.abs(beforeBodyHeight - afterBodyHeight) > 0.1
-    const bodyBottomChanged = Math.abs(bodyBottomBefore - bodyBottomAfter) > 0.1
-    
-    // Log all taunt-related setupPlayerCollider calls
-    if (wasTaunting || this.isTaunting) {
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8180',message:'[TAUNT] setupPlayerCollider during taunt',data:{beforePlayerX,afterPlayerX,beforePlayerY,afterPlayerY,beforeBodyX,afterBodyX,beforeBodyY,afterBodyY,beforeBodyHeight,afterBodyHeight,bodyBottomBefore,bodyBottomAfter,bodyHeightChanged,bodyBottomChanged,positionChanged,beforeDisplayHeight,afterDisplayHeight,groundY:this.groundYPosition,bodyHeight,bodyWidth,currentAnim:this.player.anims.currentAnim?.key,isCrouching:this.isCrouching,isJumping:this.isJumping,isTaunting:this.isTaunting,wasTaunting},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    }
-    // #endregion
     
     // Position body at ground level (only if not jumping and not taunting)
     // FIX: Don't override position during taunt - taunt code handles its own positioning
@@ -8367,19 +8302,8 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
-    // #region agent log
-    const beforeCancelPlayerX = this.player.x
-    const beforeCancelPlayerY = this.player.y
-    const beforeCancelBodyX = this.player.body ? (this.player.body as Phaser.Physics.Arcade.Body).x : 0
-    const beforeCancelBodyY = this.player.body ? (this.player.body as Phaser.Physics.Arcade.Body).y : 0
-    const beforeCancelBodyHeight = this.player.body ? (this.player.body as Phaser.Physics.Arcade.Body).height : 0
-    const beforeCancelDisplayHeight = this.player.displayHeight
-    const beforeCancelAnim = this.player.anims.currentAnim?.key
-    // #endregion
-
     this.isTaunting = false
     const body = this.player.body as Phaser.Physics.Arcade.Body | null
-    const onGround = body ? this.isPlayerGrounded(body) : false
     
     if (body) {
       body.setAcceleration(0, 0)
@@ -8394,64 +8318,23 @@ export class MainScene extends Phaser.Scene {
     this.player.setTexture(BITTEE_SPRITES.stand.key)
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     
-    // #region agent log
-    const afterTextureChangePlayerX = this.player.x
-    const afterTextureChangePlayerY = this.player.y
-    // #endregion
-    
-    // Preserve X position before setupPlayerCollider (it can change positions)
-    // Y will be set to ground level after
-    const preserveXBeforeCollider = this.player.x
+    // CRITICAL: Preserve X position before setupPlayerCollider (consistent with toggle paths)
+    const preserveX = this.player.x
     
     this.setupPlayerCollider(0)
     
-    // #region agent log
-    const afterSetupColliderPlayerX = this.player.x
-    const afterSetupColliderPlayerY = this.player.y
-    const afterSetupColliderBodyX = body?.x || 0
-    const afterSetupColliderBodyY = body?.y || 0
-    const afterSetupColliderBodyHeight = body?.height || 0
-    // #endregion
-    
-    // CRITICAL: Restore X position, then set Y to ground level
-    this.player.setX(preserveXBeforeCollider)
-    
-    // FIX: Set position based on whether on ground or in air
-    if (onGround && body) {
-      // On ground: set feet to ground level (postUpdate will handle this, but set it here for immediate correction)
-      this.player.setY(this.groundYPosition)
-      body.x = preserveXBeforeCollider
+    // CRITICAL: Set positions AFTER setupPlayerCollider (consistent with toggle ON/OFF)
+    // Always set to ground level when exiting taunt (on ground or not)
+    this.player.setX(preserveX)
+    this.player.setY(this.groundYPosition)  // Always ground level when exiting taunt
+    if (body) {
+      body.x = preserveX
       body.y = this.groundYPosition - (body.height / 2)
-    } else if (body) {
-      // In air: preserve current Y position (will fall naturally)
-      const currentY = this.player.y
-      this.player.setY(currentY)
-      body.x = this.player.x
-      body.y = currentY - (body.height / 2)
     }
-
-    // #region agent log
-    const afterPositionSetPlayerX = this.player.x
-    const afterPositionSetPlayerY = this.player.y
-    const afterPositionSetBodyX = body?.x || 0
-    const afterPositionSetBodyY = body?.y || 0
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8324',message:'[TAUNT] cancelTaunt - position tracking',data:{beforeCancelPlayerX,afterTextureChangePlayerX,afterSetupColliderPlayerX,afterPositionSetPlayerX,beforeCancelPlayerY,afterTextureChangePlayerY,afterSetupColliderPlayerY,afterPositionSetPlayerY,beforeCancelBodyX,afterSetupColliderBodyX,afterPositionSetBodyX,beforeCancelBodyY,afterSetupColliderBodyY,afterPositionSetBodyY,beforeCancelBodyHeight,afterSetupColliderBodyHeight,groundY:this.groundYPosition,onGround,beforeCancelDisplayHeight,displayHeight:this.player.displayHeight,beforeCancelAnim,currentAnim:this.player.anims.currentAnim?.key,playIdle},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
 
     if (playIdle) {
       this.setIdlePose(true)
     }
-    
-    // #region agent log
-    const afterSetIdlePosePlayerX = this.player.x
-    const afterSetIdlePosePlayerY = this.player.y
-    const afterSetIdlePoseBodyX = body?.x || 0
-    const afterSetIdlePoseBodyY = body?.y || 0
-    if (Math.abs(afterPositionSetPlayerX - afterSetIdlePosePlayerX) > 0.1 || 
-        Math.abs(afterPositionSetPlayerY - afterSetIdlePosePlayerY) > 0.1) {
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:8363',message:'[TAUNT] cancelTaunt - setIdlePose changed position',data:{afterPositionSetPlayerX,afterSetIdlePosePlayerX,afterPositionSetPlayerY,afterSetIdlePosePlayerY,afterPositionSetBodyX,afterSetIdlePoseBodyX,afterPositionSetBodyY,afterSetIdlePoseBodyY,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    }
-    // #endregion
   }
 
   private handleTaunt(): void {
@@ -10516,21 +10399,10 @@ export class MainScene extends Phaser.Scene {
 
     // If already taunting, toggle it off
     if (this.isTaunting) {
-      // #region agent log
-      const beforeToggleOffPlayerX = this.player.x
-      const beforeToggleOffPlayerY = this.player.y
-      const beforeToggleOffBodyX = body?.x || 0
-      const beforeToggleOffBodyY = body?.y || 0
-      const beforeToggleOffBodyHeight = body?.height || 0
-      const beforeToggleOffDisplayHeight = this.player.displayHeight
-      const beforeToggleOffAnim = this.player.anims.currentAnim?.key
-      // #endregion
-      
       // RESTORED: Simple inline approach from working version (e9cd8ff)
       // This was working before - handle everything inline instead of calling cancelTaunt()
       this.isTaunting = false
       const currentX = this.player.x
-      const onGround = this.isPlayerGrounded(body)
       
       if (body) {
         body.setAllowGravity(true)
@@ -10543,85 +10415,24 @@ export class MainScene extends Phaser.Scene {
       // Set texture to stand first
       this.player.setTexture(BITTEE_SPRITES.stand.key)
       
-      // #region agent log
-      const afterTextureChangePlayerX = this.player.x
-      const afterTextureChangePlayerY = this.player.y
-      // #endregion
+      // CRITICAL: Preserve X position BEFORE setupPlayerCollider (consistent with toggle ON)
+      // Don't set Y position yet - wait until after setupPlayerCollider
+      const preserveX = currentX
       
-      if (onGround) {
-        // On ground: set feet to ground level
-        this.player.setY(this.groundYPosition)
-        if (body) {
-          // Sync body to sprite position - use manual calculation instead of updateFromGameObject
-          // (updateFromGameObject can cause issues with offsets)
-          body.x = this.player.x
-          body.y = this.groundYPosition - (body.height / 2)
-        }
-      } else {
-        // In air: preserve current Y position
-        const currentY = this.player.y
-        this.player.setY(currentY)
-        if (body) {
-          body.x = this.player.x
-          body.y = currentY - (body.height / 2)
-        }
-      }
-      
-      // #region agent log
-      const afterPositionSetPlayerX = this.player.x
-      const afterPositionSetPlayerY = this.player.y
-      const afterPositionSetBodyX = body?.x || 0
-      const afterPositionSetBodyY = body?.y || 0
-      // #endregion
-      
-      // Preserve X position
-      this.player.setX(currentX)
-      if (body) {
-        body.x = currentX
-      }
-      
-      // #region agent log
-      const afterXPreservePlayerX = this.player.x
-      const afterXPreserveBodyX = body?.x || 0
-      // #endregion
-      
-      // Preserve X position before setupPlayerCollider (it can change positions)
-      // Y will be set to ground level after
-      const preserveXBeforeCollider = this.player.x
-      
-      // Setup collider after position is set
+      // Setup collider - this will preserve positions since wasTaunting is still true
       this.setupPlayerCollider(0)
       
-      // CRITICAL: Restore X position and set Y to ground level after setupPlayerCollider
-      this.player.setX(preserveXBeforeCollider)
-      this.player.setY(this.groundYPosition)  // Always set to ground level when exiting taunt
+      // CRITICAL: Set positions AFTER setupPlayerCollider (consistent with toggle ON)
+      // Always set to ground level when exiting taunt (on ground or not)
+      this.player.setX(preserveX)
+      this.player.setY(this.groundYPosition)  // Always ground level when exiting taunt
       if (body) {
-        body.x = preserveXBeforeCollider
+        body.x = preserveX
         body.y = this.groundYPosition - (body.height / 2)
       }
       
-      // #region agent log
-      const afterSetupColliderPlayerX = this.player.x
-      const afterSetupColliderPlayerY = this.player.y
-      const afterSetupColliderBodyX = body?.x || 0
-      const afterSetupColliderBodyY = body?.y || 0
-      const afterSetupColliderBodyHeight = body?.height || 0
-      fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10428',message:'[TAUNT] toggle OFF - position tracking',data:{beforeToggleOffPlayerX,afterTextureChangePlayerX,afterPositionSetPlayerX,afterXPreservePlayerX,afterSetupColliderPlayerX,beforeToggleOffPlayerY,afterTextureChangePlayerY,afterPositionSetPlayerY,afterSetupColliderPlayerY,beforeToggleOffBodyX,afterPositionSetBodyX,afterXPreserveBodyX,afterSetupColliderBodyX,beforeToggleOffBodyY,afterPositionSetBodyY,afterSetupColliderBodyY,beforeToggleOffBodyHeight,afterSetupColliderBodyHeight,groundY:this.groundYPosition,onGround,currentX,beforeToggleOffDisplayHeight,displayHeight:this.player.displayHeight,beforeToggleOffAnim,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
-      
       // Transition to idle pose
       this.setIdlePose(true)
-      
-      // #region agent log
-      const afterSetIdlePosePlayerX = this.player.x
-      const afterSetIdlePosePlayerY = this.player.y
-      const afterSetIdlePoseBodyX = body?.x || 0
-      const afterSetIdlePoseBodyY = body?.y || 0
-      if (Math.abs(afterSetupColliderPlayerX - afterSetIdlePosePlayerX) > 0.1 || 
-          Math.abs(afterSetupColliderPlayerY - afterSetIdlePosePlayerY) > 0.1) {
-        fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10475',message:'[TAUNT] toggle OFF - setIdlePose changed position',data:{afterSetupColliderPlayerX,afterSetIdlePosePlayerX,afterSetupColliderPlayerY,afterSetIdlePosePlayerY,afterSetupColliderBodyX,afterSetIdlePoseBodyX,afterSetupColliderBodyY,afterSetIdlePoseBodyY,groundY:this.groundYPosition},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-      }
-      // #endregion
       
       return
     }
@@ -10639,16 +10450,6 @@ export class MainScene extends Phaser.Scene {
       return
     }
     
-    // #region agent log
-    const beforeToggleOnPlayerX = this.player.x
-    const beforeToggleOnPlayerY = this.player.y
-    const beforeToggleOnBodyX = body?.x || 0
-    const beforeToggleOnBodyY = body?.y || 0
-    const beforeToggleOnBodyHeight = body?.height || 0
-    const beforeToggleOnDisplayHeight = this.player.displayHeight
-    const beforeToggleOnAnim = this.player.anims.currentAnim?.key
-    // #endregion
-    
     // Directly set taunt state and play animation like throwing does
     this.isTaunting = true
     const currentX = this.player.x
@@ -10665,46 +10466,7 @@ export class MainScene extends Phaser.Scene {
     
     this.player.setScale(this.basePlayerScale, this.basePlayerScale)
     
-    // #region agent log
-    const afterScaleChangePlayerX = this.player.x
-    const afterScaleChangePlayerY = this.player.y
-    // #endregion
-    
-    // Preserve current X position before setupPlayerCollider (Y will be set to ground level)
-    const preserveX = this.player.x
-    
-    this.setupPlayerCollider(0)
-    
-    // #region agent log
-    const afterSetupColliderPlayerX = this.player.x
-    const afterSetupColliderPlayerY = this.player.y
-    const afterSetupColliderBodyX = body?.x || 0
-    const afterSetupColliderBodyY = body?.y || 0
-    const afterSetupColliderBodyHeight = body?.height || 0
-    // #endregion
-    
-    // CRITICAL: Preserve X position and set Y to ground level for taunt
-    // Don't change X position - keep it exactly where it was
-    this.player.setX(preserveX)
-    this.player.setY(this.groundYPosition)  // Feet at ground level
-    if (body) {
-      // Sync body to sprite - body center should be at player.y - (body.height / 2)
-      // because player.y is the bottom of the sprite (feet position)
-      body.x = preserveX
-      body.y = this.groundYPosition - (body.height / 2)
-      body.setVelocity(0, 0)
-    }
-    
-    // #region agent log
-    const afterPositionSetPlayerX = this.player.x
-    const afterPositionSetPlayerY = this.player.y
-    const afterPositionSetBodyX = body?.x || 0
-    const afterPositionSetBodyY = body?.y || 0
-    fetch('http://127.0.0.1:7242/ingest/0dfc9fc0-de6d-441d-9389-1bd8bfb0a1b5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'MainScene.ts:10495',message:'[TAUNT] toggle ON - position tracking',data:{beforeToggleOnPlayerX,afterScaleChangePlayerX,afterSetupColliderPlayerX,afterPositionSetPlayerX,beforeToggleOnPlayerY,afterScaleChangePlayerY,afterSetupColliderPlayerY,afterPositionSetPlayerY,beforeToggleOnBodyX,afterSetupColliderBodyX,afterPositionSetBodyX,beforeToggleOnBodyY,afterSetupColliderBodyY,afterPositionSetBodyY,beforeToggleOnBodyHeight,afterSetupColliderBodyHeight,groundY:this.groundYPosition,currentX,beforeToggleOnDisplayHeight,displayHeight:this.player.displayHeight,beforeToggleOnAnim,currentAnim:this.player.anims.currentAnim?.key},timestamp:Date.now(),sessionId:'taunt-debug',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
-    
-    // Directly play taunt like throwing does - stop animation and set texture
-    this.player.setFlipX(false)
+    // CRITICAL: Set texture BEFORE setupPlayerCollider so body height is calculated correctly
     // Toggle between taunt and taunt2 each time taunt is triggered
     const tauntKey = this.currentTauntFrame === 1 ? 'bittee-taunt' : 'bittee-taunt2'
     const tauntSprite = this.currentTauntFrame === 1 ? BITTEE_SPRITES.taunt : BITTEE_SPRITES.taunt2
@@ -10712,8 +10474,25 @@ export class MainScene extends Phaser.Scene {
     this.currentTauntFrame = this.currentTauntFrame === 1 ? 2 : 1
     // Stop any current animation first (like throwing does)
     this.player.anims.stop()
-    // Set texture directly (like throwing does with throw1)
+    // Set texture directly BEFORE setupPlayerCollider (like toggle OFF does)
     this.player.setTexture(tauntSprite.key)
+    this.player.setFlipX(false)
+    
+    // CRITICAL: Preserve X position before setupPlayerCollider (it preserves positions during taunt)
+    const preserveX = currentX
+    
+    this.setupPlayerCollider(0)
+    
+    // CRITICAL: Set positions AFTER setupPlayerCollider (consistent with toggle OFF)
+    // setupPlayerCollider has already preserved positions, but we need to ensure Y is at ground level
+    this.player.setX(preserveX)
+    this.player.setY(this.groundYPosition)  // Feet at ground level
+    if (body) {
+      body.x = preserveX
+      body.y = this.groundYPosition - (body.height / 2)
+      body.setVelocity(0, 0)
+    }
+    
     // Play the animation if it exists
     if (this.anims.exists(tauntKey)) {
       this.player.anims.play(tauntKey)
