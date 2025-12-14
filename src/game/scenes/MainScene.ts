@@ -101,6 +101,47 @@ const DEFAULT_SETTINGS: GameSettings = {
   levelIndex: 0,
 }
 
+const AUDIO_ASSETS: Record<string, string> = {
+  'bittee-mawtini1': getAudioPath('/assets/audio/bittee-mawtini1.webm'),
+  'bittee-mawtini2': getAudioPath('/assets/audio/bittee-mawtini2.webm'),
+  'bittee-settings-music': getAudioPath('/assets/audio/bittee-settings-music.webm'),
+  'palestine-8bit': getAudioPath('/assets/audio/palestine-8bit.webm'),
+  'bittee-finallevel': getAudioPath('/assets/audio/bittee-finallevel.webm'),
+  'bittee-run-sound': getAudioPath('/assets/audio/bittee-run-sound.webm'),
+  'throw-sound1': getAudioPath('/assets/audio/throw-sound1.webm'),
+  'throw-sound2': getAudioPath('/assets/audio/throw-sound2.webm'),
+  'throw-sound3': getAudioPath('/assets/audio/throw-sound3.webm'),
+  'throw-sound4': getAudioPath('/assets/audio/throw-sound4.webm'),
+  'time-sound1': getAudioPath('/assets/audio/time-sound1.webm'),
+  'time-sound2': getAudioPath('/assets/audio/time-sound2.webm'),
+  'time-sound3': getAudioPath('/assets/audio/time-sound3.webm'),
+  'shield-sound': getAudioPath('/assets/audio/shield-sound.webm'),
+  'ball-bounce': getAudioPath('/assets/audio/ball-bounce.webm'),
+  'life-down': getAudioPath('/assets/audio/life-down.webm'),
+  'life-up': getAudioPath('/assets/audio/life-up.webm'),
+  'level-complete': getAudioPath('/assets/audio/level-complete.webm'),
+  'configure-sound': getAudioPath('/assets/audio/configure-sound.webm'),
+  'settings-sound': getAudioPath('/assets/audio/settings-sound.webm'),
+  'heartbeat-slow': getAudioPath('/assets/audio/heartbeat-slow.webm'),
+  'heartbeat-medium': getAudioPath('/assets/audio/heartbeat-medium.webm'),
+  'heartbeat-fast': getAudioPath('/assets/audio/heartbeat-fast.webm'),
+  'heartbeat-die': getAudioPath('/assets/audio/heartbeat-die.webm'),
+  'jet1': getAudioPath('/assets/audio/jet1.webm'),
+  'jet2': getAudioPath('/assets/audio/jet2.webm'),
+  'opp-hit': getAudioPath('/assets/audio/opp-hit.webm'),
+  'opp-die': getAudioPath('/assets/audio/opp-die.webm'),
+}
+
+const CORE_AUDIO_KEYS: readonly string[] = [
+  'bittee-mawtini1',
+  'bittee-mawtini2',
+  'bittee-finallevel',
+  'bittee-settings-music',
+  'ball-bounce',
+  'throw-sound1',
+  'level-complete',
+]
+
 const BITTEE_TARGET_HEIGHT = 144
 // TEMPORARILY DISABLED: Used in disabled texture normalization
 // const BITTEE_TEXTURE_SIZE = 256
@@ -494,6 +535,11 @@ export class MainScene extends Phaser.Scene {
   private touchThrow = false
   private touchUpJustPressed = false
   private backgroundLayer!: Phaser.GameObjects.Image
+  private loadedLevelKeys: Set<string> = new Set()
+  private pendingLevelTextureLoads: Map<string, Promise<void>> = new Map()
+  private pendingAudioLoads: Map<string, Promise<void>> = new Map()
+  private audioInitialized = false
+  private contextHandlersAttached = false
   private currentLevelIndex = 0
   private hudContainer!: Phaser.GameObjects.Container
   private levelText!: Phaser.GameObjects.Text
@@ -517,6 +563,7 @@ export class MainScene extends Phaser.Scene {
   private fireRate = DIFFICULTY_PRESETS.stormWarning.fireRate
   private isPausedForSettings = false
   private isPausedForDeath = false  // Pause game during death sequence
+  private isContextLost = false
   private deathCount = 0  // Track number of deaths to increase power-up spawn chance
   private settings!: GameSettings
   private currentDifficultyKey: DifficultyKey = 'stormWarning'
@@ -644,6 +691,7 @@ export class MainScene extends Phaser.Scene {
   private jetSoundCount = 0
   private timeSoundInstances: Phaser.Sound.BaseSound[] = []
   private lastMemoryCleanup: number = 0  // Track last memory cleanup time
+  private loadedAudioKeys: Set<string> = new Set()
 
   constructor() {
     super('MainScene')
@@ -752,7 +800,7 @@ export class MainScene extends Phaser.Scene {
 
     this.generateProceduralTextures()
     this.loadBitteeAssets()
-    this.loadLevelAssets()
+    this.preloadInitialLevelAssets()
     this.loadBallAssets()
     this.loadBossAssets()
     this.loadAudioAssets()
@@ -821,6 +869,8 @@ export class MainScene extends Phaser.Scene {
       gradientBg.fillRect(0, y, worldWidth, stepHeight)
     }
 
+    this.setupContextLossHandlers()
+
     this.sound.volume = VOLUME_LEVELS[this.settings.volumeIndex].value
 
     // Unlock audio context early (before initializing sounds)
@@ -828,7 +878,7 @@ export class MainScene extends Phaser.Scene {
     this.unlockAudioContext()
 
     // Initialize audio
-    this.initializeAudio()
+    void this.initializeAudio()
     
     // Unlock again after initialization to ensure it's active
     setTimeout(() => {
@@ -1414,6 +1464,11 @@ export class MainScene extends Phaser.Scene {
     this.updateAmmoDisplay()  // Initialize ammo display
     this.createSettingsButton()
     this.ensureSettingsPanel()
+
+    // Track cached audio so we can prune unused buffers when levels change
+    if (this.cache.audio.getKeys) {
+      this.loadedAudioKeys = new Set(this.cache.audio.getKeys())
+    }
     this.applyLevel(this.currentLevelIndex)
     this.refreshLevelLabel()
     this.applySettingsVisuals()
@@ -1427,6 +1482,55 @@ export class MainScene extends Phaser.Scene {
         }
       })
     }
+  }
+
+  private setupContextLossHandlers(): void {
+    if (this.contextHandlersAttached) {
+      return
+    }
+
+    const canvas = this.sys.game.canvas
+    if (!canvas) {
+      return
+    }
+
+    const onLoss = (event: Event) => {
+      event.preventDefault?.()
+      this.isContextLost = true
+      this.audioInitialized = false
+
+      // Tear down audio instances so they can be rebuilt on restore
+      this.soundEffects.forEach((sound) => {
+        if (sound && sound.destroy) {
+          sound.destroy()
+        }
+      })
+      this.soundEffects.clear()
+      this.backgroundMusic1 = undefined
+      this.backgroundMusic2 = undefined
+      this.settingsMusic = undefined
+      this.bossMusic = undefined
+    }
+
+    const onRestore = () => {
+      this.isContextLost = false
+      void this.ensureLevelTexture(this.currentLevelIndex).then(() => {
+        const level = LEVEL_DEFINITIONS[this.currentLevelIndex]
+        if (level && this.backgroundLayer) {
+          this.backgroundLayer.setTexture(level.key)
+          this.updateBackgroundScale()
+        }
+        this.manageLevelTextureCache()
+      })
+
+      this.audioInitialized = false
+      void this.initializeAudio()
+      this.manageAudioCache()
+    }
+
+    canvas.addEventListener('webglcontextlost', onLoss as EventListener, false)
+    canvas.addEventListener('webglcontextrestored', onRestore as EventListener, false)
+    this.contextHandlersAttached = true
   }
 
   /**
@@ -1531,6 +1635,9 @@ export class MainScene extends Phaser.Scene {
   update(time: number): void {
     // Wrap update in try-catch to prevent crashes on mobile
     try {
+      if (this.isContextLost) {
+        return
+      }
       // Add error boundary for critical operations
       if (this.isPausedForSettings || !this.isGameActive || this.isPausedForDeath) {
         this.updateBossLevel()  // Still update boss level even when paused (for transitions)
@@ -4893,19 +5000,29 @@ export class MainScene extends Phaser.Scene {
     if (this.isBossLevel && index < 12) {
       this.cleanupBossLevel()
     }
-    
+
     this.currentLevelIndex = Phaser.Math.Clamp(index, 0, LEVEL_DEFINITIONS.length - 1)
-    const level = LEVEL_DEFINITIONS[this.currentLevelIndex]
-    if (this.backgroundLayer) {
-      this.backgroundLayer.setTexture(level.key)
-      this.updateBackgroundScale()
-    }
-    // Optimization #1: Generate bubbles only for this level's brands
-    // TEMPORARILY DISABLED: Bubble generation uses addBase64 which may have issues
-    // this.ensureBubblesForLevel(this.currentLevelIndex)
     this.settings.levelIndex = this.currentLevelIndex
     this.applySettingsVisuals()
     this.refreshLevelLabel()
+
+    const loadPromise = this.ensureLevelTexture(this.currentLevelIndex)
+
+    loadPromise
+      .then(() => {
+        const level = LEVEL_DEFINITIONS[this.currentLevelIndex]
+        if (level && this.backgroundLayer) {
+          this.backgroundLayer.setTexture(level.key)
+          this.updateBackgroundScale()
+        }
+      })
+      .catch((error) => {
+        console.error('Error applying level assets:', error)
+      })
+      .finally(() => {
+        this.manageLevelTextureCache()
+        this.manageAudioCache()
+      })
   }
 
   private refreshLevelLabel(): void {
@@ -7952,13 +8069,135 @@ export class MainScene extends Phaser.Scene {
     this.load.image('powerup-slingshot-green', getAssetPath('/assets/bittee/slingshot-green.png'))
   }
 
-  private loadLevelAssets(): void {
-    LEVEL_DEFINITIONS.forEach((level) => {
-      try {
-        this.load.image(level.key, level.textureUrl)
-      } catch (error) {
-        // Log error but don't crash - use fallback or skip
-        // console.warn(`Failed to load level asset: ${level.key}`, error)
+  private preloadInitialLevelAssets(): void {
+    const currentLevel = LEVEL_DEFINITIONS[this.currentLevelIndex]
+    this.load.image(currentLevel.key, currentLevel.textureUrl)
+    this.loadedLevelKeys.add(currentLevel.key)
+
+    // Opportunistically queue the next level background during the loading screen
+    const nextLevel = LEVEL_DEFINITIONS[this.currentLevelIndex + 1]
+    if (nextLevel) {
+      this.load.image(nextLevel.key, nextLevel.textureUrl)
+      this.loadedLevelKeys.add(nextLevel.key)
+    }
+  }
+
+  private ensureLevelTexture(index: number): Promise<void> {
+    const level = LEVEL_DEFINITIONS[index]
+    if (!level) {
+      return Promise.resolve()
+    }
+
+    if (this.textures.exists(level.key)) {
+      this.loadedLevelKeys.add(level.key)
+      return Promise.resolve()
+    }
+
+    const existingPromise = this.pendingLevelTextureLoads.get(level.key)
+    if (existingPromise) {
+      return existingPromise
+    }
+
+    const loadPromise = new Promise<void>((resolve) => {
+      const onComplete = (loadedKey: string) => {
+        if (loadedKey === level.key) {
+          this.pendingLevelTextureLoads.delete(level.key)
+          this.loadedLevelKeys.add(level.key)
+          cleanup()
+          resolve()
+        }
+      }
+
+      const onError = (file: Phaser.Loader.File) => {
+        if (file?.key === level.key) {
+          this.pendingLevelTextureLoads.delete(level.key)
+          cleanup()
+          resolve()
+        }
+      }
+
+      const cleanup = () => {
+        this.load.off(`filecomplete-image-${level.key}`, onComplete)
+        this.load.off('loaderror', onError)
+      }
+
+      this.load.on(`filecomplete-image-${level.key}`, onComplete)
+      this.load.on('loaderror', onError)
+      this.load.image(level.key, level.textureUrl)
+      if (!this.load.isLoading) {
+        this.load.start()
+      }
+    })
+
+    this.pendingLevelTextureLoads.set(level.key, loadPromise)
+    return loadPromise
+  }
+
+  private prefetchNextLevelTexture(): void {
+    const nextLevelIndex = this.currentLevelIndex + 1
+    if (nextLevelIndex < LEVEL_DEFINITIONS.length) {
+      void this.ensureLevelTexture(nextLevelIndex)
+    }
+  }
+
+  private unloadUnusedLevelTextures(keepKeys: Set<string>): void {
+    this.loadedLevelKeys.forEach((key) => {
+      if (!keepKeys.has(key) && this.textures.exists(key)) {
+        this.textures.remove(key)
+        this.loadedLevelKeys.delete(key)
+      }
+    })
+  }
+
+  private manageLevelTextureCache(): void {
+    const keepKeys = new Set<string>()
+    const current = LEVEL_DEFINITIONS[this.currentLevelIndex]
+    if (current) {
+      keepKeys.add(current.key)
+    }
+
+    const next = LEVEL_DEFINITIONS[this.currentLevelIndex + 1]
+    if (next) {
+      keepKeys.add(next.key)
+    }
+
+    this.prefetchNextLevelTexture()
+    this.unloadUnusedLevelTextures(keepKeys)
+  }
+
+  private manageAudioCache(): void {
+    const keepKeys = new Set<string>(CORE_AUDIO_KEYS)
+
+    const addIfActive = (sound: Phaser.Sound.BaseSound | undefined, key: string) => {
+      if (sound && (sound.isPlaying || sound.isPaused)) {
+        keepKeys.add(key)
+      }
+    }
+
+    addIfActive(this.backgroundMusic1, 'bittee-mawtini1')
+    addIfActive(this.backgroundMusic2, 'bittee-mawtini2')
+    addIfActive(this.settingsMusic, 'bittee-settings-music')
+    addIfActive(this.bossMusic, 'bittee-finallevel')
+    if (this.heartbeatSound && this.currentHeartbeatType) {
+      addIfActive(this.heartbeatSound, `heartbeat-${this.currentHeartbeatType}`)
+    }
+
+    this.soundEffects.forEach((sound, key) => {
+      if (sound && (sound.isPlaying || sound.isPaused)) {
+        keepKeys.add(key)
+      }
+    })
+
+    this.loadedAudioKeys.forEach((key) => {
+      if (!keepKeys.has(key) && this.cache.audio.exists(key)) {
+        const sound = this.soundEffects.get(key)
+        if (sound) {
+          sound.stop()
+          sound.destroy()
+          this.soundEffects.delete(key)
+        }
+        this.cache.audio.remove(key)
+        this.loadedAudioKeys.delete(key)
       }
     })
   }
@@ -7972,39 +8211,63 @@ export class MainScene extends Phaser.Scene {
   }
 
   private loadAudioAssets(): void {
-    // Background music - two tracks that loop sequentially
-    // Audio files hosted locally (for GitHub Pages deployment)
-    // Using getAudioPath() which returns full URLs for GitHub Pages
-    this.load.audio('bittee-mawtini1', getAudioPath('/assets/audio/bittee-mawtini1.webm'))
-    this.load.audio('bittee-mawtini2', getAudioPath('/assets/audio/bittee-mawtini2.webm'))
-    this.load.audio('bittee-settings-music', getAudioPath('/assets/audio/bittee-settings-music.webm'))
-    this.load.audio('palestine-8bit', getAudioPath('/assets/audio/palestine-8bit.webm'))
-    this.load.audio('bittee-finallevel', getAudioPath('/assets/audio/bittee-finallevel.webm'))
-    
-    // Sound effects
-    this.load.audio('bittee-run-sound', getAudioPath('/assets/audio/bittee-run-sound.webm'))
-    this.load.audio('throw-sound1', getAudioPath('/assets/audio/throw-sound1.webm'))
-    this.load.audio('throw-sound2', getAudioPath('/assets/audio/throw-sound2.webm'))
-    this.load.audio('throw-sound3', getAudioPath('/assets/audio/throw-sound3.webm'))
-    this.load.audio('throw-sound4', getAudioPath('/assets/audio/throw-sound4.webm'))
-    this.load.audio('time-sound1', getAudioPath('/assets/audio/time-sound1.webm'))
-    this.load.audio('time-sound2', getAudioPath('/assets/audio/time-sound2.webm'))
-    this.load.audio('time-sound3', getAudioPath('/assets/audio/time-sound3.webm'))
-    this.load.audio('shield-sound', getAudioPath('/assets/audio/shield-sound.webm'))
-    this.load.audio('ball-bounce', getAudioPath('/assets/audio/ball-bounce.webm'))
-    this.load.audio('life-down', getAudioPath('/assets/audio/life-down.webm'))
-    this.load.audio('life-up', getAudioPath('/assets/audio/life-up.webm'))
-    this.load.audio('level-complete', getAudioPath('/assets/audio/level-complete.webm'))
-    this.load.audio('configure-sound', getAudioPath('/assets/audio/configure-sound.webm'))
-    this.load.audio('settings-sound', getAudioPath('/assets/audio/settings-sound.webm'))
-    this.load.audio('heartbeat-slow', getAudioPath('/assets/audio/heartbeat-slow.webm'))
-    this.load.audio('heartbeat-medium', getAudioPath('/assets/audio/heartbeat-medium.webm'))
-    this.load.audio('heartbeat-fast', getAudioPath('/assets/audio/heartbeat-fast.webm'))
-    this.load.audio('heartbeat-die', getAudioPath('/assets/audio/heartbeat-die.webm'))
-    this.load.audio('jet1', getAudioPath('/assets/audio/jet1.webm'))
-    this.load.audio('jet2', getAudioPath('/assets/audio/jet2.webm'))
-    this.load.audio('opp-hit', getAudioPath('/assets/audio/opp-hit.webm'))
-    this.load.audio('opp-die', getAudioPath('/assets/audio/opp-die.webm'))
+    // Only preload the smallest, most frequently used clips; load the rest on-demand
+    CORE_AUDIO_KEYS.forEach((key) => {
+      const path = AUDIO_ASSETS[key]
+      if (path) {
+        this.load.audio(key, path)
+      }
+    })
+  }
+
+  private ensureAudioLoaded(key: string): Promise<void> {
+    if (this.cache.audio.exists(key)) {
+      return Promise.resolve()
+    }
+
+    const path = AUDIO_ASSETS[key]
+    if (!path) {
+      return Promise.resolve()
+    }
+
+    const existingPromise = this.pendingAudioLoads.get(key)
+    if (existingPromise) {
+      return existingPromise
+    }
+
+    const loadPromise = new Promise<void>((resolve) => {
+      const onComplete = (loadedKey: string) => {
+        if (loadedKey === key) {
+          cleanup()
+          this.pendingAudioLoads.delete(key)
+          this.loadedAudioKeys.add(key)
+          resolve()
+        }
+      }
+
+      const onError = (file: Phaser.Loader.File) => {
+        if (file?.key === key) {
+          cleanup()
+          this.pendingAudioLoads.delete(key)
+          resolve()
+        }
+      }
+
+      const cleanup = () => {
+        this.load.off(`filecomplete-audio-${key}`, onComplete)
+        this.load.off('loaderror', onError)
+      }
+
+      this.load.on(`filecomplete-audio-${key}`, onComplete)
+      this.load.on('loaderror', onError)
+      this.load.audio(key, path)
+      if (!this.load.isLoading) {
+        this.load.start()
+      }
+    })
+
+    this.pendingAudioLoads.set(key, loadPromise)
+    return loadPromise
   }
 
   private loadBallAssets(): void {
@@ -11871,7 +12134,16 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private initializeAudio(): void {
+  private async initializeAudio(): Promise<void> {
+    if (this.audioInitialized) {
+      return
+    }
+
+    const musicKeys = ['bittee-mawtini1', 'bittee-mawtini2', 'bittee-settings-music', 'bittee-finallevel']
+    const criticalEffects = ['ball-bounce', 'throw-sound1', 'level-complete']
+
+    await Promise.all([...musicKeys, ...criticalEffects].map((key) => this.ensureAudioLoaded(key)))
+
     // Initialize background music tracks at 50% of base volume (0.5 * 0.5 = 0.25) - reduced another 10%
     if (this.cache.audio.exists('bittee-mawtini1')) {
       this.backgroundMusic1 = this.sound.add('bittee-mawtini1', {
@@ -11879,7 +12151,7 @@ export class MainScene extends Phaser.Scene {
         volume: 0.25, // 50% of 50% = 25% volume for background music
         mute: false, // Ensure not muted
       })
-      
+
       // Set up listener to play track 2 when track 1 ends (only if not in boss level)
       // Store reference to handler so we can remove it if needed
       // Remove any existing listeners first to prevent duplicates
@@ -11899,7 +12171,7 @@ export class MainScene extends Phaser.Scene {
         volume: 0.25, // 50% of 50% = 25% volume for background music
         mute: false, // Ensure not muted
       })
-      
+
       // Set up listener to play track 1 when track 2 ends (loops back, only if not in boss level)
       // Store reference to handler so we can remove it if needed
       // Remove any existing listeners first to prevent duplicates
@@ -11974,7 +12246,8 @@ export class MainScene extends Phaser.Scene {
     if (this.cache.audio.exists('heartbeat-fast')) {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
     }
-    
+
+    this.audioInitialized = true
   }
 
   private unlockAudioContext(): void {
@@ -12004,6 +12277,15 @@ export class MainScene extends Phaser.Scene {
     const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
     if (volumeMultiplier === 0) {
       return // Silent mode
+    }
+
+    if (!this.cache.audio.exists(key)) {
+      void this.ensureAudioLoaded(key).then(() => {
+        if (this.cache.audio.exists(key)) {
+          this.playSound(key, volume, loop)
+        }
+      })
+      return
     }
 
     // Try to get sound from map first
@@ -12055,6 +12337,13 @@ export class MainScene extends Phaser.Scene {
     // Ensure sound system is not muted
     if (this.sound) {
       this.sound.setMute(false)
+    }
+
+    if ((!this.backgroundMusic1 || !this.backgroundMusic2) && !this.audioInitialized) {
+      void this.initializeAudio().then(() => {
+        this.startBackgroundMusic(forceRestart)
+      })
+      return
     }
 
     // FIX: If forceRestart is true, skip the "already playing" check and force a fresh start
