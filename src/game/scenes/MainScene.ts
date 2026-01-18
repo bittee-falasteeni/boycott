@@ -12337,22 +12337,26 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
+    // Check if audio exists in cache - use getKeys() instead of exists() as it's more reliable
+    const audioKeys = this.cache.audio.getKeys ? this.cache.audio.getKeys() : []
+    const audioExists = audioKeys.includes(key) || this.loadedAudioKeys.has(key) || this.cache.audio.exists(key)
+
     // Debug logging for specific sounds that aren't working
     if (key === 'bittee-zaghroota' || key === 'configure-sound' || key === 'bittee-run-sound') {
-      console.log(`[Audio Debug] playSound called: ${key}, volume: ${volume}, loop: ${loop}, cache exists: ${this.cache.audio.exists(key)}`)
+      console.log(`[Audio Debug] playSound called: ${key}, volume: ${volume}, loop: ${loop}, audioExists: ${audioExists}, in keys: ${audioKeys.includes(key)}`)
     }
 
     // Try to get sound from map first
     let sound = this.soundEffects.get(key)
     
     // If not in map, try to get it directly from sound manager (for sounds that might not be in map)
-    if (!sound && this.cache.audio.exists(key)) {
+    if (!sound && audioExists) {
       sound = this.sound.add(key, { volume: key === 'ball-bounce' ? 0.25 : 0.7 })
       this.soundEffects.set(key, sound)
     }
     
     // If still not found, try to play directly from cache (for sounds loaded but not in map)
-    if (!sound && this.cache.audio.exists(key)) {
+    if (!sound && audioExists) {
       // Create a one-time sound instance
       const soundInstance = this.sound.add(key, { volume: key === 'ball-bounce' ? 0.25 : 0.7 })
       sound = soundInstance
@@ -12380,11 +12384,16 @@ export class MainScene extends Phaser.Scene {
           sound.play({ volume: finalVolume })
         }
       }
-    } else if (this.cache.audio.exists(key)) {
+    } else if (audioExists) {
       // Fallback: play directly from cache if sound instance creation failed
       const baseVolume = key === 'ball-bounce' ? 0.25 : 0.7
       const finalVolume = volume * baseVolume * volumeMultiplier
       this.sound.play(key, { volume: finalVolume })
+    } else {
+      // Sound not found in cache - log warning for debugging
+      if (key === 'bittee-zaghroota' || key === 'configure-sound' || key === 'bittee-run-sound') {
+        console.warn(`[Audio Debug] Sound "${key}" not found in cache. Available keys:`, audioKeys.slice(0, 10))
+      }
     }
   }
 
