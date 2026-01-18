@@ -8041,16 +8041,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   private preloadInitialLevelAssets(): void {
-    const currentLevel = LEVEL_DEFINITIONS[this.currentLevelIndex]
-    this.load.image(currentLevel.key, currentLevel.textureUrl)
-    this.loadedLevelKeys.add(currentLevel.key)
-
-    // Opportunistically queue the next level background during the loading screen
-    const nextLevel = LEVEL_DEFINITIONS[this.currentLevelIndex + 1]
-    if (nextLevel) {
-      this.load.image(nextLevel.key, nextLevel.textureUrl)
-      this.loadedLevelKeys.add(nextLevel.key)
-    }
+    // Load all level images upfront to prevent loading issues
+    LEVEL_DEFINITIONS.forEach((level) => {
+      this.load.image(level.key, level.textureUrl)
+      this.loadedLevelKeys.add(level.key)
+    })
   }
 
   private ensureLevelTexture(index: number): Promise<void> {
@@ -12167,6 +12162,7 @@ export class MainScene extends Phaser.Scene {
       'jet2',
       'opp-hit',
       'opp-die',
+      'bittee-zaghroota',
     ]
     soundEffectKeys.forEach((key) => {
       if (this.cache.audio.exists(key)) {
@@ -12219,13 +12215,20 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
-
     // Try to get sound from map first
     let sound = this.soundEffects.get(key)
     
     // If not in map, try to get it directly from sound manager (for sounds that might not be in map)
     if (!sound && this.cache.audio.exists(key)) {
       sound = this.sound.add(key, { volume: key === 'ball-bounce' ? 0.25 : 0.7 })
+      this.soundEffects.set(key, sound)
+    }
+    
+    // If still not found, try to play directly from cache (for sounds loaded but not in map)
+    if (!sound && this.cache.audio.exists(key)) {
+      // Create a one-time sound instance
+      const soundInstance = this.sound.add(key, { volume: key === 'ball-bounce' ? 0.25 : 0.7 })
+      sound = soundInstance
       this.soundEffects.set(key, sound)
     }
     
@@ -12236,8 +12239,22 @@ export class MainScene extends Phaser.Scene {
       if (loop && !sound.isPlaying) {
         sound.play({ volume: finalVolume, loop: true })
       } else if (!loop) {
-        sound.play({ volume: finalVolume })
+        // For non-looping sounds, always play (allow overlapping sounds)
+        // If sound is already playing, create a new instance to allow overlap
+        if (sound.isPlaying) {
+          // Create a new sound instance for overlapping playback
+          const newSound = this.sound.add(key, { volume: baseVolume })
+          newSound.play({ volume: finalVolume })
+          // Don't store this temporary instance in the map
+        } else {
+          sound.play({ volume: finalVolume })
+        }
       }
+    } else if (this.cache.audio.exists(key)) {
+      // Fallback: play directly from cache if sound instance creation failed
+      const baseVolume = key === 'ball-bounce' ? 0.25 : 0.7
+      const finalVolume = volume * baseVolume * volumeMultiplier
+      this.sound.play(key, { volume: finalVolume })
     }
   }
 
