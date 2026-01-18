@@ -6777,7 +6777,10 @@ export class MainScene extends Phaser.Scene {
         this.autoFireStartTime = this.time.now
         
         // Show indicator with 4 second timer (with progress bar like other powerups)
-        this.showPowerUpIndicator('LeLe Sbeed', 4000, true)  // true = show progress bar
+        this.showPowerUpIndicator('LeLeLeLeLeLeLe', 4000, true)  // true = show progress bar
+        
+        // Play zaghroota sound effect at 40% volume
+        this.playSound('bittee-zaghroota', 0.4)
         
         // Set timer to disable auto-fire after 4 seconds
         this.autoFireTimer = this.time.delayedCall(4000, () => {
@@ -6866,7 +6869,7 @@ export class MainScene extends Phaser.Scene {
     } else if (label === 'Dawood\'s Throw') {
       fontSize = '40px'
       scale = 1.5
-    } else if (label === 'LeLe Sbeed') {
+    } else if (label === 'LeLeLeLeLeLeLe') {
       fontSize = '60px'
       scale = 2.0
     } else if (label === 'Sabr') {
@@ -8005,6 +8008,7 @@ export class MainScene extends Phaser.Scene {
     this.load.audio('jet2', getAudioPath('/assets/audio/jet2.webm'))
     this.load.audio('opp-hit', getAudioPath('/assets/audio/opp-hit.webm'))
     this.load.audio('opp-die', getAudioPath('/assets/audio/opp-die.webm'))
+    this.load.audio('bittee-zaghroota', getAudioPath('/assets/audio/bittee-zaghroota.webm'))
   }
 
   private loadBallAssets(): void {
@@ -10279,9 +10283,9 @@ export class MainScene extends Phaser.Scene {
       
       // End powerups (shield and slow motion) when transitioning to next level
       // Use resetPowerUps to clean up everything including indicators and sounds
-      // Preserve red slingshot ammo and LeLe Sbeed when advancing levels
+      // Preserve red slingshot ammo and LeLeLeLeLeLeLe when advancing levels
       try {
-        this.resetPowerUps(true, true)  // true = preserve red slingshot ammo, true = preserve LeLe Sbeed
+        this.resetPowerUps(true, true)  // true = preserve red slingshot ammo, true = preserve LeLeLeLeLeLeLe
       } catch (err: unknown) {
         console.warn('Error resetting powerups:', err)
       }
