@@ -101,38 +101,6 @@ const DEFAULT_SETTINGS: GameSettings = {
   levelIndex: 0,
 }
 
-const AUDIO_ASSETS: Record<string, string> = {
-  'bittee-mawtini1': getAudioPath('/assets/audio/bittee-mawtini1.webm'),
-  'bittee-mawtini2': getAudioPath('/assets/audio/bittee-mawtini2.webm'),
-  'bittee-settings-music': getAudioPath('/assets/audio/bittee-settings-music.webm'),
-  'palestine-8bit': getAudioPath('/assets/audio/palestine-8bit.webm'),
-  'bittee-finallevel': getAudioPath('/assets/audio/bittee-finallevel.webm'),
-  'bittee-run-sound': getAudioPath('/assets/audio/bittee-run-sound.webm'),
-  'throw-sound1': getAudioPath('/assets/audio/throw-sound1.webm'),
-  'throw-sound2': getAudioPath('/assets/audio/throw-sound2.webm'),
-  'throw-sound3': getAudioPath('/assets/audio/throw-sound3.webm'),
-  'throw-sound4': getAudioPath('/assets/audio/throw-sound4.webm'),
-  'time-sound1': getAudioPath('/assets/audio/time-sound1.webm'),
-  'time-sound2': getAudioPath('/assets/audio/time-sound2.webm'),
-  'time-sound3': getAudioPath('/assets/audio/time-sound3.webm'),
-  'shield-sound': getAudioPath('/assets/audio/shield-sound.webm'),
-  'ball-bounce': getAudioPath('/assets/audio/ball-bounce.webm'),
-  'life-down': getAudioPath('/assets/audio/life-down.webm'),
-  'life-up': getAudioPath('/assets/audio/life-up.webm'),
-  'level-complete': getAudioPath('/assets/audio/level-complete.webm'),
-  'configure-sound': getAudioPath('/assets/audio/configure-sound.webm'),
-  'settings-sound': getAudioPath('/assets/audio/settings-sound.webm'),
-  'heartbeat-slow': getAudioPath('/assets/audio/heartbeat-slow.webm'),
-  'heartbeat-medium': getAudioPath('/assets/audio/heartbeat-medium.webm'),
-  'heartbeat-fast': getAudioPath('/assets/audio/heartbeat-fast.webm'),
-  'heartbeat-die': getAudioPath('/assets/audio/heartbeat-die.webm'),
-  'jet1': getAudioPath('/assets/audio/jet1.webm'),
-  'jet2': getAudioPath('/assets/audio/jet2.webm'),
-  'opp-hit': getAudioPath('/assets/audio/opp-hit.webm'),
-  'opp-die': getAudioPath('/assets/audio/opp-die.webm'),
-  'bittee-zaghroota': getAudioPath('/assets/audio/bittee-zaghroota.webm'),
-}
-
 const CORE_AUDIO_KEYS: readonly string[] = [
   'bittee-mawtini1',
   'bittee-mawtini2',
@@ -538,7 +506,6 @@ export class MainScene extends Phaser.Scene {
   private backgroundLayer!: Phaser.GameObjects.Image
   private loadedLevelKeys: Set<string> = new Set()
   private pendingLevelTextureLoads: Map<string, Promise<void>> = new Map()
-  private pendingAudioLoads: Map<string, Promise<void>> = new Map()
   private audioInitialized = false
   private contextHandlersAttached = false
   private currentLevelIndex = 0
