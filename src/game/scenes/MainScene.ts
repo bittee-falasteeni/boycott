@@ -10114,39 +10114,44 @@ export class MainScene extends Phaser.Scene {
     this.isGameActive = true  // Set game as active so music can play
 
     // Unlock audio context for mobile (required for sound to work)
+    // This must be called on user interaction (which startGame() is)
     this.unlockAudioContext()
-
-    // Ensure sound system is not muted
-    if (this.sound) {
-      this.sound.setMute(false)
-    }
     
-    // Start background music when game starts (but not during boss level)
-    if (!this.isBossLevel) {
-      if (respawnOnCurrentLevel) {
-        // Respawn: Resume music if paused (prioritize paused tracks to preserve seek position)
-        // Paused tracks preserve seek position, so resume() continues from where it paused
-        if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
-          this.currentMusicTrack = 1
-          this.backgroundMusic1.resume()
-        } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
-          this.currentMusicTrack = 2
-          this.backgroundMusic2.resume()
-        } else if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
-          // Already playing, no action needed
-          this.currentMusicTrack = 1
-        } else if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
-          // Already playing, no action needed
-          this.currentMusicTrack = 2
-        } else {
-          // No music playing or paused, start fresh
-          this.startBackgroundMusic(false)
-        }
-      } else {
-        // New game start: Start background music
-        this.startBackgroundMusic(true)
+    // Wait a bit for audio context to resume before starting music
+    // Some browsers need a moment after user interaction
+    this.time.delayedCall(100, () => {
+      // Ensure sound system is not muted
+      if (this.sound) {
+        this.sound.setMute(false)
       }
-    }
+      
+      // Start background music when game starts (but not during boss level)
+      if (!this.isBossLevel) {
+        if (respawnOnCurrentLevel) {
+          // Respawn: Resume music if paused (prioritize paused tracks to preserve seek position)
+          // Paused tracks preserve seek position, so resume() continues from where it paused
+          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+            this.currentMusicTrack = 1
+            this.backgroundMusic1.resume()
+          } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
+            this.currentMusicTrack = 2
+            this.backgroundMusic2.resume()
+          } else if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
+            // Already playing, no action needed
+            this.currentMusicTrack = 1
+          } else if (this.backgroundMusic2 && this.backgroundMusic2.isPlaying) {
+            // Already playing, no action needed
+            this.currentMusicTrack = 2
+          } else {
+            // No music playing or paused, start fresh
+            this.startBackgroundMusic(false)
+          }
+        } else {
+          // New game start: Start background music
+          this.startBackgroundMusic(true)
+        }
+      }
+    })
 
     // Reset player position to center and clear transition flags
     if (this.player) {
@@ -12286,11 +12291,20 @@ export class MainScene extends Phaser.Scene {
       if (soundManager && soundManager.context) {
         const context = soundManager.context
         if (context.state === 'suspended') {
-          context.resume().catch(() => {})
+          console.log('[Audio Debug] Audio context is suspended, attempting to resume...')
+          context.resume().then(() => {
+            console.log('[Audio Debug] Audio context resumed successfully, new state:', context.state)
+          }).catch((err: unknown) => {
+            console.warn('[Audio Debug] Failed to resume audio context:', err)
+          })
+        } else {
+          console.log('[Audio Debug] Audio context state:', context.state)
         }
+      } else {
+        console.warn('[Audio Debug] Sound manager or context not available')
       }
     } catch (err: unknown) {
-      // Ignore errors
+      console.warn('[Audio Debug] Error unlocking audio context:', err)
     }
   }
   
