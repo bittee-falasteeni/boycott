@@ -6157,6 +6157,11 @@ export class MainScene extends Phaser.Scene {
     // COMMENTED OUT: Heartbeat sounds during gameplay (too much audio for mobile)
     // this.updateHeartbeat()
 
+    // Pause background music immediately when last life is lost
+    if (this.lives <= 0) {
+      this.pauseBackgroundMusic()
+    }
+
     // Create blinking tween for invulnerability - store reference so it can be resumed if paused
     const blinkTween = this.tweens.add({
       targets: this.player,
@@ -8133,40 +8138,40 @@ export class MainScene extends Phaser.Scene {
   }
 
   private manageAudioCache(): void {
-    const keepKeys = new Set<string>(CORE_AUDIO_KEYS)
+    // FIX: Don't remove audio files during gameplay - keep all loaded audio in cache
+    // Audio files are small and should remain loaded for the entire game session
+    // Only clean up if explicitly needed (e.g., game restart)
+    // This prevents sounds like bittee-run-sound, bittee-zaghroota, configure-sound
+    // from being removed and unavailable when needed
+    
+    // Keep track of active sounds for reference, but don't remove inactive ones
+    const activeKeys = new Set<string>(CORE_AUDIO_KEYS)
 
     const addIfActive = (sound: Phaser.Sound.BaseSound | undefined, key: string) => {
       if (sound && (sound.isPlaying || sound.isPaused)) {
-        keepKeys.add(key)
+        activeKeys.add(key)
       }
     }
 
+    addIfActive(this.backgroundMusic0, 'wen-ala-ramallah')
     addIfActive(this.backgroundMusic1, 'bittee-mawtini1')
     addIfActive(this.backgroundMusic2, 'bittee-mawtini2')
+    addIfActive(this.backgroundMusic3, 'ya-zareef-altool')
     addIfActive(this.settingsMusic, 'bittee-settings-music')
     addIfActive(this.bossMusic, 'bittee-finallevel')
+    addIfActive(this.deathMusic, 'ar-rozana')
     if (this.heartbeatSound && this.currentHeartbeatType) {
       addIfActive(this.heartbeatSound, `heartbeat-${this.currentHeartbeatType}`)
     }
 
     this.soundEffects.forEach((sound, key) => {
       if (sound && (sound.isPlaying || sound.isPaused)) {
-        keepKeys.add(key)
+        activeKeys.add(key)
       }
     })
 
-    this.loadedAudioKeys.forEach((key) => {
-      if (!keepKeys.has(key) && this.cache.audio.exists(key)) {
-        const sound = this.soundEffects.get(key)
-        if (sound) {
-          sound.stop()
-          sound.destroy()
-          this.soundEffects.delete(key)
-        }
-        this.cache.audio.remove(key)
-        this.loadedAudioKeys.delete(key)
-      }
-    })
+    // Don't remove any audio - keep all loaded audio in cache
+    // Audio cleanup is not needed during gameplay
   }
 
   private loadBossAssets(): void {
@@ -10113,6 +10118,11 @@ export class MainScene extends Phaser.Scene {
     this.time.timeScale = 1
     this.isGameActive = true  // Set game as active so music can play
 
+    // Stop death music if playing (when respawning)
+    if (this.deathMusic && this.deathMusic.isPlaying) {
+      this.deathMusic.stop()
+    }
+
     // Unlock audio context for mobile (required for sound to work)
     // This must be called on user interaction (which startGame() is)
     this.unlockAudioContext()
@@ -10435,20 +10445,28 @@ export class MainScene extends Phaser.Scene {
     this.isPausedForDeath = false
     
     this.stopHeartbeat()
-    // Stop background music and play death music
+    // Background music should already be paused from handlePlayerHit(), but ensure it's paused
     this.pauseBackgroundMusic()
     
     // Play death music (ar-rozana) when all lives are lost
-    if (this.deathMusic && this.cache.audio.exists('ar-rozana')) {
+    // Check if audio exists using getKeys() as it's more reliable than cache.audio.exists()
+    const audioKeys = this.cache.audio.getKeys ? this.cache.audio.getKeys() : []
+    const arRozanaExists = audioKeys.includes('ar-rozana') || this.loadedAudioKeys.has('ar-rozana') || this.cache.audio.exists('ar-rozana')
+    
+    if (this.deathMusic && arRozanaExists) {
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
       if (volumeMultiplier > 0 && !this.deathMusic.isPlaying) {
         console.log('[Audio Debug] Playing death music (ar-rozana)')
+        // Stop death music if it was already playing (in case of respawn)
+        if (this.deathMusic.isPlaying) {
+          this.deathMusic.stop()
+        }
         const playResult = this.deathMusic.play({ volume: 0.25 * volumeMultiplier })
         console.log('[Audio Debug] Death music play result:', playResult)
       } else {
         console.log('[Audio Debug] Death music not playing - conditions:', {
           hasDeathMusic: !!this.deathMusic,
-          cacheExists: this.cache.audio.exists('ar-rozana'),
+          audioExists: arRozanaExists,
           volumeMultiplier,
           isPlaying: this.deathMusic?.isPlaying
         })
