@@ -8181,6 +8181,15 @@ export class MainScene extends Phaser.Scene {
     // Background music - two tracks that loop sequentially
     // Audio files hosted locally (for GitHub Pages deployment)
     // Using getAudioPath() which returns full URLs for GitHub Pages
+    
+    // Debug: Log audio paths being loaded
+    const audioBasePath = import.meta.env.DEV ? '/' : '/boycott/'
+    const wenPath = getAudioPath('/assets/audio/wen-ala-ramallah.webm')
+    const zaghrootaPath = getAudioPath('/assets/audio/bittee-zaghroota.webm')
+    console.log('[Audio Debug] Loading audio files with baseURL:', audioBasePath)
+    console.log('[Audio Debug] wen-ala-ramallah path:', wenPath, '→ full:', audioBasePath + wenPath)
+    console.log('[Audio Debug] bittee-zaghroota path:', zaghrootaPath, '→ full:', audioBasePath + zaghrootaPath)
+    
     this.load.audio('wen-ala-ramallah', getAudioPath('/assets/audio/wen-ala-ramallah.webm'))
     this.load.audio('ya-zareef-altool', getAudioPath('/assets/audio/ya-zareef-altool.webm'))
     this.load.audio('bittee-mawtini1', getAudioPath('/assets/audio/bittee-mawtini1.webm'))
@@ -12088,6 +12097,24 @@ export class MainScene extends Phaser.Scene {
   }
 
   private initializeAudio(): void {
+    // Debug: Log what's in the audio cache
+    const audioKeys = this.cache.audio.getKeys ? this.cache.audio.getKeys() : []
+    console.log('[Audio Debug] Audio cache keys count:', audioKeys.length)
+    console.log('[Audio Debug] Audio cache keys:', audioKeys)
+    console.log('[Audio Debug] Cache has wen-ala-ramallah:', this.cache.audio.exists('wen-ala-ramallah'))
+    console.log('[Audio Debug] Cache has bittee-zaghroota:', this.cache.audio.exists('bittee-zaghroota'))
+    console.log('[Audio Debug] Cache has bittee-mawtini1:', this.cache.audio.exists('bittee-mawtini1'))
+    console.log('[Audio Debug] Cache has ar-rozana:', this.cache.audio.exists('ar-rozana'))
+    
+    // Check audio context state
+    try {
+      const soundManager = this.sound as any
+      if (soundManager && soundManager.context) {
+        console.log('[Audio Debug] Audio context state:', soundManager.context.state)
+      }
+    } catch (e) {
+      console.log('[Audio Debug] Could not check audio context:', e)
+    }
 
     // Initialize track 0: wen-ala-ramallah (plays first)
     if (this.cache.audio.exists('wen-ala-ramallah')) {
@@ -12232,6 +12259,17 @@ export class MainScene extends Phaser.Scene {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
     }
     
+    // Debug: Log what was initialized
+    console.log('[Audio Debug] Background music initialized:', {
+      backgroundMusic0: !!this.backgroundMusic0,
+      backgroundMusic1: !!this.backgroundMusic1,
+      backgroundMusic2: !!this.backgroundMusic2,
+      backgroundMusic3: !!this.backgroundMusic3,
+      bossMusic: !!this.bossMusic,
+      deathMusic: !!this.deathMusic,
+      soundEffectsCount: this.soundEffects.size
+    })
+    
     this.audioInitialized = true
   }
 
@@ -12315,6 +12353,16 @@ export class MainScene extends Phaser.Scene {
   }
 
   private startBackgroundMusic(forceRestart: boolean = false): void {
+    console.log('[Audio Debug] startBackgroundMusic called', {
+      forceRestart,
+      isBossLevel: this.isBossLevel,
+      audioInitialized: this.audioInitialized,
+      hasBackgroundMusic0: !!this.backgroundMusic0,
+      hasBackgroundMusic1: !!this.backgroundMusic1,
+      hasBackgroundMusic2: !!this.backgroundMusic2,
+      hasBackgroundMusic3: !!this.backgroundMusic3
+    })
+    
     // Don't play background music during boss level (boss music plays instead)
     if (this.isBossLevel) {
       // Explicitly stop any background music that might be playing
