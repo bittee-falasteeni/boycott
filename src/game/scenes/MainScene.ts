@@ -8251,57 +8251,6 @@ export class MainScene extends Phaser.Scene {
     this.load.audio('bittee-zaghroota', getAudioPath('/assets/audio/bittee-zaghroota.webm'))
   }
 
-  private ensureAudioLoaded(key: string): Promise<void> {
-    if (this.cache.audio.exists(key)) {
-      return Promise.resolve()
-    }
-
-    const path = AUDIO_ASSETS[key]
-    if (!path) {
-      return Promise.resolve()
-    }
-
-    const existingPromise = this.pendingAudioLoads.get(key)
-    if (existingPromise) {
-      return existingPromise
-    }
-
-    const loadPromise = new Promise<void>((resolve) => {
-      const onComplete = (loadedKey: string) => {
-        if (loadedKey === key) {
-          cleanup()
-          this.pendingAudioLoads.delete(key)
-          this.loadedAudioKeys.add(key)
-          resolve()
-        }
-      }
-
-      const onError = (file: Phaser.Loader.File) => {
-        if (file?.key === key) {
-          cleanup()
-          this.pendingAudioLoads.delete(key)
-          resolve()
-        }
-      }
-
-      const cleanup = () => {
-        this.load.off(`filecomplete-audio-${key}`, onComplete)
-        this.load.off('loaderror', onError)
-      }
-
-      this.load.on(`filecomplete-audio-${key}`, onComplete)
-      this.load.on('loaderror', onError)
-      this.load.audio(key, path)
-      if (!this.load.isLoading) {
-        this.load.start()
-      }
-    })
-
-    this.pendingAudioLoads.set(key, loadPromise)
-    return loadPromise
->>>>>>> origin/codex/analyze-game-crash-in-iphone-browsers
-  }
-
   private loadBallAssets(): void {
     // Optimization #2: Load each brand PNG only once (12 images instead of 48)
     const brands = [
@@ -12166,15 +12115,7 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private async initializeAudio(): Promise<void> {
-    if (this.audioInitialized) {
-      return
-    }
-
-    const musicKeys = ['bittee-mawtini1', 'bittee-mawtini2', 'bittee-settings-music', 'bittee-finallevel']
-    const criticalEffects = ['ball-bounce', 'throw-sound1', 'level-complete']
-
-    await Promise.all([...musicKeys, ...criticalEffects].map((key) => this.ensureAudioLoaded(key)))
+  private initializeAudio(): void {
 
     // Initialize background music tracks at 50% of base volume (0.5 * 0.5 = 0.25) - reduced another 10%
     if (this.cache.audio.exists('bittee-mawtini1')) {
@@ -12278,7 +12219,7 @@ export class MainScene extends Phaser.Scene {
     if (this.cache.audio.exists('heartbeat-fast')) {
       this.soundEffects.set('heartbeat-fast', this.sound.add('heartbeat-fast', { volume: 0.7, loop: true }))
     }
-
+    
     this.audioInitialized = true
   }
 
@@ -12311,14 +12252,6 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
-    if (!this.cache.audio.exists(key)) {
-      void this.ensureAudioLoaded(key).then(() => {
-        if (this.cache.audio.exists(key)) {
-          this.playSound(key, volume, loop)
-        }
-      })
-      return
-    }
 
     // Try to get sound from map first
     let sound = this.soundEffects.get(key)
@@ -12372,9 +12305,8 @@ export class MainScene extends Phaser.Scene {
     }
 
     if ((!this.backgroundMusic1 || !this.backgroundMusic2) && !this.audioInitialized) {
-      void this.initializeAudio().then(() => {
-        this.startBackgroundMusic(forceRestart)
-      })
+      this.initializeAudio()
+      this.startBackgroundMusic(forceRestart)
       return
     }
 
