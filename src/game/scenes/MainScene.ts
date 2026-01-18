@@ -8121,16 +8121,12 @@ export class MainScene extends Phaser.Scene {
   }
 
   private manageLevelTextureCache(): void {
+    // Keep all level textures since we load them all upfront in preloadInitialLevelAssets()
+    // This ensures all level backgrounds remain available for the map grid and level switching
     const keepKeys = new Set<string>()
-    const current = LEVEL_DEFINITIONS[this.currentLevelIndex]
-    if (current) {
-      keepKeys.add(current.key)
-    }
-
-    const next = LEVEL_DEFINITIONS[this.currentLevelIndex + 1]
-    if (next) {
-      keepKeys.add(next.key)
-    }
+    LEVEL_DEFINITIONS.forEach((level) => {
+      keepKeys.add(level.key)
+    })
 
     this.prefetchNextLevelTexture()
     this.unloadUnusedLevelTextures(keepKeys)
@@ -12396,64 +12392,117 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // No track is playing - start with track 0 (wen-ala-ramallah)
-    this.currentMusicTrack = 0
+    // No track is playing - start with track 0 (wen-ala-ramallah), fallback to track 3, 1, or 2 if track 0 not available
+    // volumeMultiplier already declared above
+    // Try tracks in order: 0 → 3 → 1 → 2 (fallback to first available)
     if (this.backgroundMusic0) {
-      const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
-      
-      if (volumeMultiplier > 0) {
-        // Always stop first to clear any weird state, then play fresh
-        this.backgroundMusic0.stop()
-        
-        // Small delay to ensure stop completes, then play
-        this.time.delayedCall(50, () => {
-          if (this.backgroundMusic0) {
-            try {
-              const playResult = this.backgroundMusic0.play({ volume: 0.25 * volumeMultiplier })
-              if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
-                (playResult as Promise<void>).catch((e: unknown) => {
-                  console.warn('Background music play promise rejected:', e)
-                  this.time.delayedCall(200, () => {
-                    if (this.backgroundMusic0) {
-                      const retryResult = this.backgroundMusic0.play({ volume: 0.25 * volumeMultiplier })
-                      if (retryResult && typeof retryResult === 'object' && 'catch' in retryResult) {
-                        (retryResult as Promise<void>).catch((e: unknown) => {
-                          console.warn('Background music play failed on retry:', e)
-                        })
-                      }
+      this.currentMusicTrack = 0
+      this.backgroundMusic0.stop()
+      this.time.delayedCall(50, () => {
+        if (this.backgroundMusic0) {
+          try {
+            const playResult = this.backgroundMusic0.play({ volume: 0.25 * volumeMultiplier })
+            if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+              (playResult as Promise<void>).catch((e: unknown) => {
+                console.warn('Background music play promise rejected:', e)
+                this.time.delayedCall(200, () => {
+                  if (this.backgroundMusic0) {
+                    const retryResult = this.backgroundMusic0.play({ volume: 0.25 * volumeMultiplier })
+                    if (retryResult && typeof retryResult === 'object' && 'catch' in retryResult) {
+                      (retryResult as Promise<void>).catch((e: unknown) => {
+                        console.warn('Background music play failed on retry:', e)
+                      })
                     }
-                  })
-                })
-              }
-              
-              if (this.backgroundMusic0) {
-                this.backgroundMusic0.removeAllListeners('complete')
-                this.backgroundMusic0.on('complete', () => {
-                  if (!this.isBossLevel && this.isGameActive) {
-                    this.playNextMusicTrack()
                   }
                 })
-              }
-              
-            } catch (err: unknown) {
-              console.warn('Failed to play background music:', err)
-              this.time.delayedCall(200, () => {
-                if (this.backgroundMusic0) {
-                  try {
-                    this.backgroundMusic0.play({ volume: 0.25 * volumeMultiplier })
-                  } catch (e: unknown) {
-                    console.warn('Background music play failed on retry:', e)
-                  }
+              })
+            }
+            
+            if (this.backgroundMusic0) {
+              this.backgroundMusic0.removeAllListeners('complete')
+              this.backgroundMusic0.on('complete', () => {
+                if (!this.isBossLevel && this.isGameActive) {
+                  this.playNextMusicTrack()
                 }
               })
             }
+            
+          } catch (err: unknown) {
+            console.warn('Failed to play background music:', err)
+            this.time.delayedCall(200, () => {
+              if (this.backgroundMusic0) {
+                try {
+                  this.backgroundMusic0.play({ volume: 0.25 * volumeMultiplier })
+                } catch (e: unknown) {
+                  console.warn('Background music play failed on retry:', e)
+                }
+              }
+            })
           }
-        })
-      } else {
-        console.warn('Background music not starting - volume multiplier is 0 (silent mode)')
-      }
+        }
+      })
+    } else if (this.backgroundMusic3) {
+      // Fallback to track 3 if track 0 not available
+      this.currentMusicTrack = 3
+      this.backgroundMusic3.stop()
+      this.time.delayedCall(50, () => {
+        if (this.backgroundMusic3) {
+          const playResult = this.backgroundMusic3.play({ volume: 0.25 * volumeMultiplier })
+          if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+            (playResult as Promise<void>).catch((e: unknown) => {
+              console.warn('Track 3 play promise rejected:', e)
+            })
+          }
+          this.backgroundMusic3.removeAllListeners('complete')
+          this.backgroundMusic3.on('complete', () => {
+            if (!this.isBossLevel && this.isGameActive) {
+              this.playNextMusicTrack()
+            }
+          })
+        }
+      })
+    } else if (this.backgroundMusic1) {
+      // Fallback to track 1 if tracks 0 and 3 not available
+      this.currentMusicTrack = 1
+      this.backgroundMusic1.stop()
+      this.time.delayedCall(50, () => {
+        if (this.backgroundMusic1) {
+          const playResult = this.backgroundMusic1.play({ volume: 0.25 * volumeMultiplier })
+          if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+            (playResult as Promise<void>).catch((e: unknown) => {
+              console.warn('Track 1 play promise rejected:', e)
+            })
+          }
+          this.backgroundMusic1.removeAllListeners('complete')
+          this.backgroundMusic1.on('complete', () => {
+            if (!this.isBossLevel && this.isGameActive) {
+              this.playNextMusicTrack()
+            }
+          })
+        }
+      })
+    } else if (this.backgroundMusic2) {
+      // Fallback to track 2 if no other tracks available
+      this.currentMusicTrack = 2
+      this.backgroundMusic2.stop()
+      this.time.delayedCall(50, () => {
+        if (this.backgroundMusic2) {
+          const playResult = this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
+          if (playResult && typeof playResult === 'object' && 'catch' in playResult) {
+            (playResult as Promise<void>).catch((e: unknown) => {
+              console.warn('Track 2 play promise rejected:', e)
+            })
+          }
+          this.backgroundMusic2.removeAllListeners('complete')
+          this.backgroundMusic2.on('complete', () => {
+            if (!this.isBossLevel && this.isGameActive) {
+              this.playNextMusicTrack()
+            }
+          })
+        }
+      })
     } else {
-      console.warn('Background music not starting - backgroundMusic0 is not initialized')
+      console.warn('Background music not starting - no music tracks initialized')
     }
     
     // Start heartbeat when game starts
