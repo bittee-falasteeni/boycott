@@ -10129,13 +10129,25 @@ export class MainScene extends Phaser.Scene {
       if (!this.isBossLevel) {
         if (respawnOnCurrentLevel) {
           // Respawn: Resume music if paused (prioritize paused tracks to preserve seek position)
-          // Paused tracks preserve seek position, so resume() continues from where it paused
-          if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
+          // Check all 4 tracks in sequence order: 0 → 3 → 1 → 2
+          if (this.backgroundMusic0 && this.backgroundMusic0.isPaused) {
+            this.currentMusicTrack = 0
+            this.backgroundMusic0.resume()
+          } else if (this.backgroundMusic3 && this.backgroundMusic3.isPaused) {
+            this.currentMusicTrack = 3
+            this.backgroundMusic3.resume()
+          } else if (this.backgroundMusic1 && this.backgroundMusic1.isPaused) {
             this.currentMusicTrack = 1
             this.backgroundMusic1.resume()
           } else if (this.backgroundMusic2 && this.backgroundMusic2.isPaused) {
             this.currentMusicTrack = 2
             this.backgroundMusic2.resume()
+          } else if (this.backgroundMusic0 && this.backgroundMusic0.isPlaying) {
+            // Already playing, no action needed
+            this.currentMusicTrack = 0
+          } else if (this.backgroundMusic3 && this.backgroundMusic3.isPlaying) {
+            // Already playing, no action needed
+            this.currentMusicTrack = 3
           } else if (this.backgroundMusic1 && this.backgroundMusic1.isPlaying) {
             // Already playing, no action needed
             this.currentMusicTrack = 1
@@ -10430,7 +10442,16 @@ export class MainScene extends Phaser.Scene {
     if (this.deathMusic && this.cache.audio.exists('ar-rozana')) {
       const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
       if (volumeMultiplier > 0 && !this.deathMusic.isPlaying) {
-        this.deathMusic.play({ volume: 0.25 * volumeMultiplier })
+        console.log('[Audio Debug] Playing death music (ar-rozana)')
+        const playResult = this.deathMusic.play({ volume: 0.25 * volumeMultiplier })
+        console.log('[Audio Debug] Death music play result:', playResult)
+      } else {
+        console.log('[Audio Debug] Death music not playing - conditions:', {
+          hasDeathMusic: !!this.deathMusic,
+          cacheExists: this.cache.audio.exists('ar-rozana'),
+          volumeMultiplier,
+          isPlaying: this.deathMusic?.isPlaying
+        })
       }
     }
     
@@ -12316,6 +12337,11 @@ export class MainScene extends Phaser.Scene {
       return // Silent mode
     }
 
+    // Debug logging for specific sounds that aren't working
+    if (key === 'bittee-zaghroota' || key === 'configure-sound' || key === 'bittee-run-sound') {
+      console.log(`[Audio Debug] playSound called: ${key}, volume: ${volume}, loop: ${loop}, cache exists: ${this.cache.audio.exists(key)}`)
+    }
+
     // Try to get sound from map first
     let sound = this.soundEffects.get(key)
     
@@ -12338,7 +12364,10 @@ export class MainScene extends Phaser.Scene {
       const baseVolume = key === 'ball-bounce' ? 0.25 : 0.7
       const finalVolume = volume * baseVolume * volumeMultiplier
       if (loop && !sound.isPlaying) {
-        sound.play({ volume: finalVolume, loop: true })
+        const playResult = sound.play({ volume: finalVolume, loop: true })
+        if (key === 'bittee-run-sound') {
+          console.log(`[Audio Debug] Running sound play result:`, playResult)
+        }
       } else if (!loop) {
         // For non-looping sounds, always play (allow overlapping sounds)
         // If sound is already playing, create a new instance to allow overlap
