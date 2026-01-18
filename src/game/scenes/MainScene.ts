@@ -12594,7 +12594,7 @@ export class MainScene extends Phaser.Scene {
       this.time.delayedCall(50, () => {
         if (this.backgroundMusic2 && !this.backgroundMusic2.isPlaying) {
           this.currentMusicTrack = 2
-          const volumeMultiplier = VOLUME_LEVELS[this.settings.volumeIndex].value
+          // volumeMultiplier already declared in function scope
           if (volumeMultiplier > 0) {
             const playResult = this.backgroundMusic2.play({ volume: 0.25 * volumeMultiplier })
             // Handle Promise or boolean return
